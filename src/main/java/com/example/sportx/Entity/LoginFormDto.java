@@ -2,13 +2,9 @@ package com.example.sportx.Entity;
 
 import lombok.Data;
 
-import java.time.LocalDateTime;
-
 @Data
-public class User {
-
-    private String id;
+public class LoginFormDto {
     private String phone;
     private String password;
-
+    private String code;
 }
