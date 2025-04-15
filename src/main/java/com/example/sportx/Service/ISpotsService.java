@@ -7,4 +7,6 @@ import com.example.sportx.Entity.Spots;
 
 public interface ISpotsService extends IService<Spots> {
     Result queryById(long id);
+
+    Result update(Spots spots);
 }
