@@ -32,9 +32,7 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
     public Result queryById(long id) {
 
         // 解决缓存穿透
-//        Spots spots = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY,id, Spots.class,this::getById,CACHE_SHOP_TTL,TimeUnit.MINUTES);
-
-
+        // Spots spots = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY,id, Spots.class,this::getById,CACHE_SHOP_TTL,TimeUnit.MINUTES);
         // 逻辑过期解决缓存击穿
         Spots spots = cacheClient
                 .queryWithLogicalExpire(CACHE_SHOP_KEY,id,Spots.class, this::getById,CACHE_SHOP_TTL,TimeUnit.MINUTES);
