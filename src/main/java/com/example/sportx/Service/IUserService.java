@@ -7,7 +7,7 @@ import com.example.sportx.Entity.User;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.stereotype.Service;
 
-@Service
+
 public interface IUserService extends IService<User> {
 
     Result sendCode(String phone, HttpSession session);

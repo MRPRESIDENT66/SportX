@@ -13,6 +13,8 @@ public class ChallengeController {
 
     @Resource
     ChallengeServiceImpl challengeService;
+
+    @Resource
     ChallengeParServiceImpl challengeParService;
 
     @PostMapping("register/{id}")
@@ -20,8 +22,8 @@ public class ChallengeController {
         return challengeParService.joinChallenge(ChallengeId);
     }
 
-    @GetMapping("/add")
-    public void addChallenge(Challenge challenge){
+    @PostMapping("/add")
+    public void addChallenge(@RequestBody Challenge challenge){
         challengeService.addChallenge(challenge);
     }
 }

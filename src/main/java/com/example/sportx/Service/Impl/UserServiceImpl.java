@@ -68,7 +68,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         User user = query().eq("phone",phone).one();
         if(user == null){
             // 用户如果不存在，保存用户
-            creatWithPhone(phone,password);
+            user = creatWithPhone(phone,password);
         }
         // 随机生成token
         String token = UUID.randomUUID().toString(true);
@@ -80,17 +80,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         // 进行存储,并且设置30分钟后过期
         stringRedisTemplate.opsForHash().putAll(LOGIN_TOKEN_KEY+token,userMap);
-        stringRedisTemplate.expire(LOGIN_TOKEN_KEY,LOGIN_TOKEN_TTL,TimeUnit.MINUTES);
+        stringRedisTemplate.expire(LOGIN_TOKEN_KEY+token,LOGIN_TOKEN_TTL,TimeUnit.MINUTES);
 
         return Result.success(token);
 
     }
 
-    private void creatWithPhone(String phone,String password) {
+    private User creatWithPhone(String phone,String password) {
         User user = new User();
         user.setPhone(phone);
         user.setId("user_"+RandomUtil.randomNumbers(10));
         user.setPassword(password);
         save(user);
+        return user;
     }
 }

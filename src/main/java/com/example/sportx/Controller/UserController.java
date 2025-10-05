@@ -20,13 +20,11 @@ public class UserController {
     //发送短信验证码
     @PostMapping("code")
     public Result sendCode(@RequestParam("phone") String phone, HttpSession session) {
-
         return userService.sendCode(phone,session);
     }
 
     @PostMapping("login")
     public Result login(@RequestBody LoginFormDto loginFormDto, HttpSession session) {
-
         return userService.login(loginFormDto,session);
     }
 
