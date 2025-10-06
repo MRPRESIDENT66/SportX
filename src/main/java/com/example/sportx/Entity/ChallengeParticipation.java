@@ -9,6 +9,7 @@ public class ChallengeParticipation {
     private Long id;
     private Long userId;         // 用户ID
     private Long challengeId;    // 挑战ID
+    private Long spotId;         // 场馆ID，保持与挑战定义一致
 
     private Integer status;      // 报名状态：0未开始，1进行中，2已完成，3取消等
     private Integer score;       // 成绩/得分（可选）

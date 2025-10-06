@@ -19,6 +19,7 @@ public class ChallengeEvent implements Serializable {
     private EventType eventType;
     private Long challengeId;
     private String userId;
+    private Long spotId;
     private LocalDateTime triggerTime;
     private String channel;
     private String message;

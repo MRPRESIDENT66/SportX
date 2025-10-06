@@ -34,6 +34,7 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
             ChallengeEvent startEvent = ChallengeEvent.builder()
                     .eventType(ChallengeEvent.EventType.START_REMINDER)
                     .challengeId(challenge.getId())
+                    .spotId(challenge.getSpotId())
                     .triggerTime(challenge.getStartTime().atStartOfDay())
                     .build();
             rabbitMqHelper.publishChallengeEvent(startEvent);
@@ -42,6 +43,7 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
             ChallengeEvent endEvent = ChallengeEvent.builder()
                     .eventType(ChallengeEvent.EventType.END_REMINDER)
                     .challengeId(challenge.getId())
+                    .spotId(challenge.getSpotId())
                     .triggerTime(challenge.getEndTime().atStartOfDay())
                     .build();
             rabbitMqHelper.publishChallengeEvent(endEvent);

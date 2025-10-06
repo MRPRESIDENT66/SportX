@@ -1,6 +1,7 @@
 package com.example.sportx.RabbitMQ;
 
 import com.example.sportx.Entity.ChallengeEvent;
+import com.example.sportx.Service.LeaderboardService;
 import com.example.sportx.Service.NotificationService;
 import com.example.sportx.Utils.NotificationKeys;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class ChallengeEventListener {
     private final NotificationService notificationService;
     private final StringRedisTemplate redisTemplate;
     private final ChallengeEventScheduler scheduler;
+    private final LeaderboardService leaderboardService;
 
     @RabbitListener(queues = CHALLENGE_EVENT_QUEUE)
     public void onChallengeEvent(@Payload ChallengeEvent event) {
@@ -37,6 +39,7 @@ public class ChallengeEventListener {
         switch (event.getEventType()) {
             case SIGN_UP_SUCCESS:
                 notificationService.notifySignupSuccess(event);
+                leaderboardService.incrementSpotHeat(event.getSpotId(), 1D);
                 break;
             case START_REMINDER:
                 notificationService.notifyStartReminder(event);

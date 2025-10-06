@@ -69,12 +69,14 @@ public class ChallengeParServiceImpl extends ServiceImpl<ChallengeParMapper, Cha
         long userId = Long.parseLong(id1);
         challengeParticipation.setUserId(userId);
         challengeParticipation.setChallengeId(id);
+        challengeParticipation.setSpotId(challenge.getSpotId()); // 对齐场馆信息
         save(challengeParticipation);
 
         ChallengeEvent event = ChallengeEvent.builder()
                 .eventType(ChallengeEvent.EventType.SIGN_UP_SUCCESS)
                 .challengeId(id)
                 .userId(UserHolder.getUser().getId())
+                .spotId(challenge.getSpotId()) // 事件携带场馆 ID
                 .triggerTime(LocalDateTime.now())
                 .build();
         rabbitMqHelper.publishChallengeEvent(event);
