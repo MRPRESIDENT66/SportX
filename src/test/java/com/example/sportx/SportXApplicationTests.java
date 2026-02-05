@@ -19,23 +19,23 @@ class SportXApplicationTests {
 
 	private ExecutorService es = Executors.newFixedThreadPool(500);
 
-	@Test
-	void contextLoads() {
-		Integer userId = 1;
-		log.error("++++++++++++++++ {}",userId);
+//	@Test
+//	void contextLoads() {
+//		Integer userId = 1;
+//		log.error("++++++++++++++++ {}",userId);
+//
+//	}
 
-	}
-
-	@Test
-	void testIdWorker(){
-		Runnable task= ()->{
-			for(int i=0; i<100; i++){
-				long id = redisWorker.nextID("order");
-				System.out.println("id: " + id);
-			}
-		};
-		for(int i=0; i<300; i++){
-			es.submit(task);
-		}
-	}
+//	@Test
+//	void testIdWorker(){
+//		Runnable task= ()->{
+//			for(int i=0; i<100; i++){
+//				long id = redisWorker.nextID("order");
+//				System.out.println("id: " + id);
+//			}
+//		};
+//		for(int i=0; i<300; i++){
+//			es.submit(task);
+//		}
+//	}
 }

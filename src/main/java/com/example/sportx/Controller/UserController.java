@@ -2,6 +2,7 @@ package com.example.sportx.Controller;
 
 
 import com.example.sportx.Entity.LoginFormDto;
+import com.example.sportx.Entity.RegularLoginFormDto;
 import com.example.sportx.Entity.Result;
 import com.example.sportx.Entity.User;
 import com.example.sportx.Service.IUserService;
@@ -26,6 +27,11 @@ public class UserController {
     @PostMapping("login")
     public Result login(@RequestBody LoginFormDto loginFormDto, HttpSession session) {
         return userService.login(loginFormDto,session);
+    }
+
+    @PostMapping("regularLogin")
+    public Result regularLogin(@RequestBody RegularLoginFormDto regularLoginFormDto) {
+        return  userService.regularLogin(regularLoginFormDto);
     }
 
     @GetMapping("/me")

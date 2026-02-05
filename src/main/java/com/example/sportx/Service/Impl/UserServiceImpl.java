@@ -2,13 +2,11 @@ package com.example.sportx.Service.Impl;
 
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.example.sportx.Entity.LoginFormDto;
-import com.example.sportx.Entity.Result;
-import com.example.sportx.Entity.User;
-import com.example.sportx.Entity.UserDto;
+import com.example.sportx.Entity.*;
 import com.example.sportx.Mapper.UserMapper;
 import com.example.sportx.Service.IUserService;
 import com.example.sportx.Utils.RegexUtils;
@@ -70,20 +68,25 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             // 用户如果不存在，保存用户
             user = creatWithPhone(phone,password);
         }
-        // 随机生成token
-        String token = UUID.randomUUID().toString(true);
-        UserDto userDto= BeanUtil.copyProperties(user, UserDto.class);
-        // 转化为map格式进行批量存储
-        Map<String,Object> userMap = BeanUtil.beanToMap(userDto);
+        return Result.success(persistLoginState(user));
 
-//        session.setAttribute("user", BeanUtil.copyProperties(user, UserDto.class));
+    }
 
-        // 进行存储,并且设置30分钟后过期
-        stringRedisTemplate.opsForHash().putAll(LOGIN_TOKEN_KEY+token,userMap);
-        stringRedisTemplate.expire(LOGIN_TOKEN_KEY+token,LOGIN_TOKEN_TTL,TimeUnit.MINUTES);
-
-        return Result.success(token);
-
+    public Result regularLogin(RegularLoginFormDto regularLoginFormDto) {
+        String phone = regularLoginFormDto.getPhone();
+        String password = regularLoginFormDto.getPassword();
+        if(!RegexUtils.isPhone(phone)){
+            return Result.error("手机号格式错误！");
+        }
+        User user = query().eq("phone",phone).one();
+        if(user == null){
+            return Result.error("该用户不存在！");
+        }
+        if(user.getPassword().equals(password)){
+            return Result.success(persistLoginState(user));
+        }else{
+            return Result.error("密码错误！");
+        }
     }
 
     private User creatWithPhone(String phone,String password) {
@@ -93,5 +96,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         user.setPassword(password);
         save(user);
         return user;
+    }
+
+    /**
+     * 将用户登录态写入Redis并返回token，供验证码登录和密码登录公用。
+     */
+    private String persistLoginState(User user) {
+        String token = UUID.randomUUID().toString(true);
+        UserDto userDto = BeanUtil.copyProperties(user, UserDto.class);
+        Map<String, Object> userMap = BeanUtil.beanToMap(userDto, new HashMap<>(),
+                CopyOptions.create().setIgnoreNullValue(true)
+                        .setFieldValueEditor((fieldName, fieldValue) -> fieldValue == null ? null : fieldValue.toString()));
+        stringRedisTemplate.opsForHash().putAll(LOGIN_TOKEN_KEY + token, userMap);
+        stringRedisTemplate.expire(LOGIN_TOKEN_KEY + token, LOGIN_TOKEN_TTL, TimeUnit.MINUTES);
+        return token;
     }
 }
