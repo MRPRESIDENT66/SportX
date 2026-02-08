@@ -6,26 +6,24 @@ import com.example.sportx.Entity.ChallengeEvent;
 import com.example.sportx.Entity.ChallengeParticipation;
 import com.example.sportx.Entity.Result;
 import com.example.sportx.Mapper.ChallengeParMapper;
-import com.example.sportx.Service.IChallengeParService;
-import com.example.sportx.Service.IChallengeService;
+import com.example.sportx.Service.ChallengeParticipationService;
+import com.example.sportx.Service.ChallengeService;
 import com.example.sportx.Utils.RabbitMqHelper;
 import com.example.sportx.Utils.RedisIDWorker;
 import com.example.sportx.Utils.UserHolder;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Service
-public class ChallengeParServiceImpl extends ServiceImpl<ChallengeParMapper, ChallengeParticipation> implements IChallengeParService {
+@RequiredArgsConstructor
+public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParMapper, ChallengeParticipation> implements ChallengeParticipationService {
 
-    @Resource
-    private IChallengeService challengeService;
-    @Resource
-    private RedisIDWorker redisIDWorker;
-    @Resource
-    private RabbitMqHelper rabbitMqHelper;
+    private final ChallengeService challengeService;
+    private final RedisIDWorker redisIDWorker;
+    private final RabbitMqHelper rabbitMqHelper;
 
     @Override
     public Result joinChallenge(Long id) {

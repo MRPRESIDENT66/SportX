@@ -1,22 +1,16 @@
 package com.example.sportx.Service.Impl;
 
-import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.BooleanUtil;
-import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.conditions.query.QueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.example.sportx.Entity.PageResult;
 import com.example.sportx.Entity.Result;
 import com.example.sportx.Entity.SpotQueryDTO;
-import com.example.sportx.Entity.PageResult;
 import com.example.sportx.Entity.Spots;
 import com.example.sportx.Mapper.SpotsMapper;
-import com.example.sportx.Service.ISpotsService;
+import com.example.sportx.Service.SpotsService;
 import com.example.sportx.Utils.CacheClient;
-import jakarta.annotation.Resource;
-import org.springframework.cache.CacheManager;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -25,14 +19,12 @@ import java.util.concurrent.TimeUnit;
 import static com.example.sportx.Utils.RedisConstants.*;
 
 @Service
-public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements ISpotsService {
+@RequiredArgsConstructor
+public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements SpotsService {
 
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
-    @Resource
-    private CacheClient cacheClient;
-    @Resource
-    private SpotsMapper spotsMapper;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final CacheClient cacheClient;
+    private final SpotsMapper spotsMapper;
 
     @Override
     public Result queryById(long id) {

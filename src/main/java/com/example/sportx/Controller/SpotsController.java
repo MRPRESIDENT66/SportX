@@ -1,20 +1,18 @@
 package com.example.sportx.Controller;
 
-import cn.hutool.db.PageResult;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.sportx.Entity.Result;
 import com.example.sportx.Entity.SpotQueryDTO;
 import com.example.sportx.Entity.Spots;
-import com.example.sportx.Service.ISpotsService;
-import jakarta.annotation.Resource;
+import com.example.sportx.Service.SpotsService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/spots")
+@RequiredArgsConstructor
 public class SpotsController {
 
-    @Resource
-    public ISpotsService spotsService;
+    private final SpotsService spotsService;
 
     @GetMapping("/{id}")
     public Result queryById(@PathVariable("id") long id) {

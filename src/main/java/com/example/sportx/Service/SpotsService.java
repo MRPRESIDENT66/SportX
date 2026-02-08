@@ -6,7 +6,7 @@ import com.example.sportx.Entity.SpotQueryDTO;
 import com.example.sportx.Entity.Spots;
 
 
-public interface ISpotsService extends IService<Spots> {
+public interface SpotsService extends IService<Spots> {
     Result queryById(long id);
 
     Result update(Spots spots);

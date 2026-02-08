@@ -5,18 +5,18 @@ import com.example.sportx.Entity.LoginFormDto;
 import com.example.sportx.Entity.RegularLoginFormDto;
 import com.example.sportx.Entity.Result;
 import com.example.sportx.Entity.User;
-import com.example.sportx.Service.IUserService;
+import com.example.sportx.Service.UserService;
 import com.example.sportx.Utils.UserHolder;
-import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/user")
+@RequiredArgsConstructor
 public class UserController {
 
-    @Resource
-    private IUserService userService;
+    private final UserService userService;
 
     //发送短信验证码
     @PostMapping("code")

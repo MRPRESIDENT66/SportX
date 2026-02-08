@@ -2,24 +2,22 @@ package com.example.sportx.Controller;
 
 import com.example.sportx.Entity.Challenge;
 import com.example.sportx.Entity.Result;
-import com.example.sportx.Service.Impl.ChallengeParServiceImpl;
-import com.example.sportx.Service.Impl.ChallengeServiceImpl;
-import jakarta.annotation.Resource;
+import com.example.sportx.Service.ChallengeParticipationService;
+import com.example.sportx.Service.ChallengeService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/challenge")
+@RequiredArgsConstructor
 public class ChallengeController {
 
-    @Resource
-    ChallengeServiceImpl challengeService;
+    private final ChallengeService challengeService;
+    private final ChallengeParticipationService challengeParticipationService;
 
-    @Resource
-    ChallengeParServiceImpl challengeParService;
-
-    @PostMapping("register/{id}")
-    public Result joinChallenge(@PathVariable("id")Long ChallengeId){
-        return challengeParService.joinChallenge(ChallengeId);
+    @PostMapping("/register/{id}")
+    public Result joinChallenge(@PathVariable("id")Long challengeId){
+        return challengeParticipationService.joinChallenge(challengeId);
     }
 
     @PostMapping("/add")

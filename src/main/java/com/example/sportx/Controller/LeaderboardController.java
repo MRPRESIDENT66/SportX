@@ -3,9 +3,9 @@ package com.example.sportx.Controller;
 import com.example.sportx.Entity.Result;
 import com.example.sportx.Entity.SpotHeatRankingDto;
 import com.example.sportx.Entity.Spots;
-import com.example.sportx.Service.ISpotsService;
+import com.example.sportx.Service.SpotsService;
 import com.example.sportx.Utils.RedisConstants;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,12 +20,11 @@ import java.util.Set;
 
 @RestController
 @RequestMapping("/leaderboard")
+@RequiredArgsConstructor
 public class LeaderboardController {
 
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
-    @Resource
-    private ISpotsService spotsService;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final SpotsService spotsService;
 
     @GetMapping("/spots/heat")
     public Result<List<SpotHeatRankingDto>> topSpotHeat(@RequestParam(value = "limit", defaultValue = "10") int limit) {

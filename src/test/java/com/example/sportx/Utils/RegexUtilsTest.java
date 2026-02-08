@@ -1,6 +1,7 @@
 package com.example.sportx.Utils;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.ui.freemarker.SpringTemplateLoader;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

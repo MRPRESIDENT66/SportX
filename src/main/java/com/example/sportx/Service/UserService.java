@@ -6,10 +6,9 @@ import com.example.sportx.Entity.RegularLoginFormDto;
 import com.example.sportx.Entity.Result;
 import com.example.sportx.Entity.User;
 import jakarta.servlet.http.HttpSession;
-import org.springframework.stereotype.Service;
 
 
-public interface IUserService extends IService<User> {
+public interface UserService extends IService<User> {
 
     Result sendCode(String phone, HttpSession session);
 

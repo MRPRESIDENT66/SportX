@@ -8,10 +8,10 @@ import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.sportx.Entity.*;
 import com.example.sportx.Mapper.UserMapper;
-import com.example.sportx.Service.IUserService;
+import com.example.sportx.Service.UserService;
 import com.example.sportx.Utils.RegexUtils;
-import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -22,10 +22,10 @@ import java.util.concurrent.TimeUnit;
 import static com.example.sportx.Utils.RedisConstants.*;
 
 @Service
-public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
+@RequiredArgsConstructor
+public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Override
     public Result sendCode(String phone, HttpSession session) {
@@ -66,7 +66,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         User user = query().eq("phone",phone).one();
         if(user == null){
             // 用户如果不存在，保存用户
-            user = creatWithPhone(phone,password);
+            user = createWithPhone(phone,password);
         }
         return Result.success(persistLoginState(user));
 
@@ -89,7 +89,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         }
     }
 
-    private User creatWithPhone(String phone,String password) {
+    private User createWithPhone(String phone,String password) {
         User user = new User();
         user.setPhone(phone);
         user.setId("user_"+RandomUtil.randomNumbers(10));

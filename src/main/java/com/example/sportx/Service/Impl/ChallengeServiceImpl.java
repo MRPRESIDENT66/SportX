@@ -4,20 +4,19 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.sportx.Entity.Challenge;
 import com.example.sportx.Entity.ChallengeEvent;
 import com.example.sportx.Mapper.ChallengeMapper;
-import com.example.sportx.Service.IChallengeService;
+import com.example.sportx.Service.ChallengeService;
 import com.example.sportx.Utils.RabbitMqHelper;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
 @Service
-public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge> implements IChallengeService {
+@RequiredArgsConstructor
+public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge> implements ChallengeService {
 
-
-    @Resource
-    private RabbitMqHelper rabbitMqHelper;
+    private final RabbitMqHelper rabbitMqHelper;
 
     @Transactional
     @Override
