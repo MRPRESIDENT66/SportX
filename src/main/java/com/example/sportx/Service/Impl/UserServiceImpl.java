@@ -6,7 +6,12 @@ import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.example.sportx.Entity.*;
+import com.example.sportx.Entity.User;
+import com.example.sportx.Entity.dto.LoginFormDto;
+import com.example.sportx.Entity.dto.RegularLoginFormDto;
+import com.example.sportx.Entity.dto.UserDto;
+import com.example.sportx.Entity.dto.UserProfileUpdateDto;
+import com.example.sportx.Entity.vo.Result;
 import com.example.sportx.Mapper.UserMapper;
 import com.example.sportx.Service.UserService;
 import com.example.sportx.Utils.RegexUtils;
@@ -28,7 +33,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final StringRedisTemplate stringRedisTemplate;
 
     @Override
-    public Result sendCode(String phone, HttpSession session) {
+    public Result<String> sendCode(String phone, HttpSession session) {
         //1.校验手机号
         if(!RegexUtils.isPhone(phone)){
             //2.如果不符合返回错误信息
@@ -47,7 +52,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     // 登录
     @Override
-    public Result login(LoginFormDto loginFormDto, HttpSession session) {
+    public Result<String> login(LoginFormDto loginFormDto, HttpSession session) {
         String phone = loginFormDto.getPhone();
         String code = loginFormDto.getCode();
         String password = loginFormDto.getPassword();
@@ -72,7 +77,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     }
 
-    public Result regularLogin(RegularLoginFormDto regularLoginFormDto) {
+    public Result<String> regularLogin(RegularLoginFormDto regularLoginFormDto) {
         String phone = regularLoginFormDto.getPhone();
         String password = regularLoginFormDto.getPassword();
         if(!RegexUtils.isPhone(phone)){
@@ -89,10 +94,66 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
     }
 
+    @Override
+    public Result<String> register(RegularLoginFormDto regularLoginFormDto) {
+        String phone = regularLoginFormDto.getPhone();
+        String password = regularLoginFormDto.getPassword();
+        if (!RegexUtils.isPhone(phone)) {
+            return Result.error("手机号格式错误！");
+        }
+        if (password == null || password.trim().isEmpty()) {
+            return Result.error("密码不能为空！");
+        }
+        User exists = query().eq("phone", phone).one();
+        if (exists != null) {
+            return Result.error("该手机号已注册！");
+        }
+        User user = createWithPhone(phone, password);
+        return Result.success(persistLoginState(user));
+    }
+
+    @Override
+    public Result<Void> logout(String token) {
+        if (token == null || token.isBlank()) {
+            return Result.success();
+        }
+        stringRedisTemplate.delete(LOGIN_TOKEN_KEY + token);
+        return Result.success();
+    }
+
+    @Override
+    public Result<User> getProfile(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return Result.error("用户未登录");
+        }
+        User user = getById(userId);
+        if (user == null) {
+            return Result.error("用户不存在");
+        }
+        user.setPassword(null);
+        return Result.success(user);
+    }
+
+    @Override
+    public Result<Void> updateProfile(String userId, UserProfileUpdateDto dto) {
+        if (userId == null || userId.isBlank()) {
+            return Result.error("用户未登录");
+        }
+        User toUpdate = new User();
+        toUpdate.setId(userId);
+        toUpdate.setNickname(dto.getNickname());
+        toUpdate.setAvatar(dto.getAvatar());
+        toUpdate.setBio(dto.getBio());
+        toUpdate.setGender(dto.getGender());
+        toUpdate.setCity(dto.getCity());
+        updateById(toUpdate);
+        return Result.success();
+    }
+
     private User createWithPhone(String phone,String password) {
         User user = new User();
         user.setPhone(phone);
-        user.setId("user_"+RandomUtil.randomNumbers(10));
+        user.setId(RandomUtil.randomNumbers(10));
         user.setPassword(password);
         save(user);
         return user;

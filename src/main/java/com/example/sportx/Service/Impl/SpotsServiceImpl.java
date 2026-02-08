@@ -3,9 +3,9 @@ package com.example.sportx.Service.Impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.example.sportx.Entity.PageResult;
-import com.example.sportx.Entity.Result;
-import com.example.sportx.Entity.SpotQueryDTO;
+import com.example.sportx.Entity.vo.PageResult;
+import com.example.sportx.Entity.vo.Result;
+import com.example.sportx.Entity.dto.SpotQueryDTO;
 import com.example.sportx.Entity.Spots;
 import com.example.sportx.Mapper.SpotsMapper;
 import com.example.sportx.Service.SpotsService;
@@ -27,7 +27,7 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
     private final SpotsMapper spotsMapper;
 
     @Override
-    public Result queryById(long id) {
+    public Result<Spots> queryById(long id) {
 
         // 解决缓存穿透
         // Spots spots = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY,id, Spots.class,this::getById,CACHE_SHOP_TTL,TimeUnit.MINUTES);
@@ -43,7 +43,7 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
         return Result.success(spots);
     }
 
-    public Result update(Spots spots) {
+    public Result<String> update(Spots spots) {
         Long id = spots.getId();
         if(id==null){
             return Result.error("店铺ID不能为空");
@@ -56,7 +56,7 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
     }
 
     @Override
-    public Result querySpots(SpotQueryDTO spotQueryDTO) {
+    public Result<PageResult<Spots>> querySpots(SpotQueryDTO spotQueryDTO) {
 
         int page = spotQueryDTO.getPage();
         int size = spotQueryDTO.getSize();

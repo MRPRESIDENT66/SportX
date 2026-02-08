@@ -44,4 +44,17 @@ class LeaderboardServiceImplTest {
 
         verify(stringRedisTemplate, never()).opsForZSet();
     }
+
+    @Test
+    void incrementSpotHeat_shouldSupportNegativeDelta() {
+        when(stringRedisTemplate.opsForZSet()).thenReturn(zSetOperations);
+
+        leaderboardService.incrementSpotHeat(1001L, -0.5);
+
+        verify(zSetOperations).incrementScore(
+                RedisConstants.LEADERBOARD_SPOT_HEAT_KEY,
+                "1001",
+                -0.5
+        );
+    }
 }

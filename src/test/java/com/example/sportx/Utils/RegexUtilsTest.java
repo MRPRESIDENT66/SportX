@@ -1,7 +1,6 @@
 package com.example.sportx.Utils;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.ui.freemarker.SpringTemplateLoader;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -48,5 +47,21 @@ class RegexUtilsTest {
         assertThat(RegexUtils.isNumber("")).isFalse();
         assertThat(RegexUtils.isNumber("   ")).isFalse();
         assertThat(RegexUtils.isNumber(null)).isFalse();
+    }
+
+    @Test
+    void isUrl_shouldValidateCommonHttpAndHttpsUrls() {
+        assertThat(RegexUtils.isUrl("https://www.example.com")).isTrue();
+        assertThat(RegexUtils.isUrl("http://sportx.cn/path?a=1")).isTrue();
+        assertThat(RegexUtils.isUrl("not-a-url")).isFalse();
+        assertThat(RegexUtils.isUrl("   ")).isFalse();
+    }
+
+    @Test
+    void isIdCard_shouldValidateFormat() {
+        assertThat(RegexUtils.isIdCard("11010119900307123X")).isTrue();
+        assertThat(RegexUtils.isIdCard("110101199003071231")).isTrue();
+        assertThat(RegexUtils.isIdCard("123456")).isFalse();
+        assertThat(RegexUtils.isIdCard(null)).isFalse();
     }
 }

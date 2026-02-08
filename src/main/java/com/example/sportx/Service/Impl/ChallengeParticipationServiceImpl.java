@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.sportx.Entity.Challenge;
 import com.example.sportx.Entity.ChallengeEvent;
 import com.example.sportx.Entity.ChallengeParticipation;
-import com.example.sportx.Entity.Result;
+import com.example.sportx.Entity.vo.Result;
 import com.example.sportx.Mapper.ChallengeParMapper;
 import com.example.sportx.Service.ChallengeParticipationService;
 import com.example.sportx.Service.ChallengeService;
@@ -26,9 +26,9 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
     private final RabbitMqHelper rabbitMqHelper;
 
     @Override
-    public Result joinChallenge(Long id) {
+    public Result<Long> joinChallenge(Long challengeId) {
         //1.查询活动
-        Challenge challenge = challengeService.getById(id);
+        Challenge challenge = challengeService.getById(challengeId);
         //2.判断活动是否可以报名
         if(challenge==null){
             return Result.error("活动不存在！");
@@ -45,16 +45,25 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
         if(challenge.getJoinedSlots() >= challenge.getTotalSlots()){
             return Result.error("活动名额不足！");
         }
-        //6.一人一单
         String userIdStr = UserHolder.getUser().getId();
-        long count = query().eq("userid", userIdStr).eq("chanlengeId",id).count();
+        long userId;
+        try {
+            userId = Long.parseLong(userIdStr);
+        } catch (NumberFormatException e) {
+            return Result.error("用户ID格式错误！");
+        }
+        //6.一人一单
+        long count = lambdaQuery()
+                .eq(ChallengeParticipation::getUserId, userId)
+                .eq(ChallengeParticipation::getChallengeId, challengeId)
+                .count();
         if(count>0){
             return Result.error("该用户已经下单！");
         }
         //5.扣减余量
         boolean success= challengeService.update()
                 .setSql("joinedSlots = joinedSlots +1")
-                .eq("id", id).eq("joinedSlots",challenge.getJoinedSlots())
+                .eq("id", challengeId).eq("joinedSlots",challenge.getJoinedSlots())
                 .update();
         if(!success){
             return Result.error("活动名额不足！");
@@ -63,17 +72,15 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
         ChallengeParticipation challengeParticipation = new ChallengeParticipation();
         long orderId = redisIDWorker.nextID("order");
         challengeParticipation.setId(orderId);
-        String id1 = UserHolder.getUser().getId();
-        long userId = Long.parseLong(id1);
         challengeParticipation.setUserId(userId);
-        challengeParticipation.setChallengeId(id);
+        challengeParticipation.setChallengeId(challengeId);
         challengeParticipation.setSpotId(challenge.getSpotId()); // 对齐场馆信息
         save(challengeParticipation);
 
         ChallengeEvent event = ChallengeEvent.builder()
                 .eventType(ChallengeEvent.EventType.SIGN_UP_SUCCESS)
-                .challengeId(id)
-                .userId(UserHolder.getUser().getId())
+                .challengeId(challengeId)
+                .userId(userIdStr)
                 .spotId(challenge.getSpotId()) // 事件携带场馆 ID
                 .triggerTime(LocalDateTime.now())
                 .build();

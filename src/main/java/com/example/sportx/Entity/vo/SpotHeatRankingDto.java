@@ -1,4 +1,4 @@
-package com.example.sportx.Entity;
+package com.example.sportx.Entity.vo;
 
 import lombok.Data;
 

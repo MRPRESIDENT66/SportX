@@ -5,8 +5,6 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.example.sportx.Entity.RedisData;
-import com.example.sportx.Entity.Result;
-import com.fasterxml.jackson.databind.util.JSONPObject;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -23,7 +21,7 @@ import static com.example.sportx.Utils.RedisConstants.*;
 @Component
 public class CacheClient {
 
-    private StringRedisTemplate stringRedisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
 
     public CacheClient(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
@@ -55,6 +53,7 @@ public class CacheClient {
         R r=dfFallback.apply(id);
         if(r == null){
             this.set(key,"",CACHE_NULL_TTL, TimeUnit.SECONDS);
+            return null;
         }
         this.set(key,r,expire,timeUnit);
         return r;
@@ -105,6 +104,6 @@ public class CacheClient {
     }
 
     private void unlock(String key){
-        stringRedisTemplate.delete(LOCK_SHOP_KEY);
+        stringRedisTemplate.delete(key);
     }
 }

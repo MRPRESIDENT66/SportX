@@ -1,7 +1,7 @@
 package com.example.sportx.Utils;
 
 import com.example.sportx.Entity.User;
-import com.example.sportx.Entity.UserDto;
+import com.example.sportx.Entity.dto.UserDto;
 
 public class UserHolder {
     private static final ThreadLocal<User> userHolder = new ThreadLocal<>();

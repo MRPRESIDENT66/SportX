@@ -1,4 +1,4 @@
-package com.example.sportx.Entity;
+package com.example.sportx.Entity.dto;
 
 import lombok.Data;
 

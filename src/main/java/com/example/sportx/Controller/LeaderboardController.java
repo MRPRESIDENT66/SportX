@@ -1,7 +1,7 @@
 package com.example.sportx.Controller;
 
-import com.example.sportx.Entity.Result;
-import com.example.sportx.Entity.SpotHeatRankingDto;
+import com.example.sportx.Entity.vo.Result;
+import com.example.sportx.Entity.vo.SpotHeatRankingDto;
 import com.example.sportx.Entity.Spots;
 import com.example.sportx.Service.SpotsService;
 import com.example.sportx.Utils.RedisConstants;

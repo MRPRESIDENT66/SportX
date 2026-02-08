@@ -3,7 +3,7 @@ package com.example.sportx.Utils;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import com.example.sportx.Entity.User;
-import com.example.sportx.Entity.UserDto;
+import com.example.sportx.Entity.dto.UserDto;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
