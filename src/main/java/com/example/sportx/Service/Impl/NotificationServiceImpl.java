@@ -18,6 +18,14 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    public void notifyCancelSuccess(ChallengeEvent event) {
+        log.info("[Notify] cancel success -> challenge={}, user={}, trigger={}",
+                event.getChallengeId(),
+                event.getUserId(),
+                event.getTriggerTime());
+    }
+
+    @Override
     public void notifyStartReminder(ChallengeEvent event) {
         log.info("[Notify] start reminder -> challenge={}, trigger={}",
                 event.getChallengeId(),

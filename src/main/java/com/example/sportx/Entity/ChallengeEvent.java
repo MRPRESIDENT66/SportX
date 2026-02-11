@@ -12,6 +12,7 @@ public class ChallengeEvent implements Serializable {
 
     public enum EventType {
         SIGN_UP_SUCCESS,
+        CANCEL_SUCCESS,
         START_REMINDER,
         END_REMINDER
     }

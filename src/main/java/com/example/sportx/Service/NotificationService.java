@@ -6,6 +6,8 @@ public interface NotificationService {
 
     void notifySignupSuccess(ChallengeEvent event);
 
+    void notifyCancelSuccess(ChallengeEvent event);
+
     void notifyStartReminder(ChallengeEvent event);
 
     void notifyEndReminder(ChallengeEvent event);

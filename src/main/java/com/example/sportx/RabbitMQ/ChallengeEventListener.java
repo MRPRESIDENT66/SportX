@@ -41,6 +41,10 @@ public class ChallengeEventListener {
                 notificationService.notifySignupSuccess(event);
                 leaderboardService.incrementSpotHeat(event.getSpotId(), 1D);
                 break;
+            case CANCEL_SUCCESS:
+                notificationService.notifyCancelSuccess(event);
+                leaderboardService.incrementSpotHeat(event.getSpotId(), -1D);
+                break;
             case START_REMINDER:
                 notificationService.notifyStartReminder(event);
                 break;
