@@ -10,31 +10,9 @@ import org.springframework.context.annotation.Configuration;
 import static com.example.sportx.RabbitMQ.RabbitConstants.CHALLENGE_EVENT_EXCHANGE;
 import static com.example.sportx.RabbitMQ.RabbitConstants.CHALLENGE_EVENT_QUEUE;
 import static com.example.sportx.RabbitMQ.RabbitConstants.CHALLENGE_EVENT_ROUTING_KEY;
-import static com.example.sportx.RabbitMQ.RabbitConstants.HELLO_EXCHANGE;
-import static com.example.sportx.RabbitMQ.RabbitConstants.HELLO_QUEUE;
-import static com.example.sportx.RabbitMQ.RabbitConstants.HELLO_ROUTING_KEY;
-
 
 @Configuration
 public class RabbitConfig {
-
-    @Bean
-    public Queue helloQueue() {
-        return new Queue(HELLO_QUEUE, true);
-    }
-
-    @Bean
-    public DirectExchange helloExchange() {
-        return new DirectExchange(HELLO_EXCHANGE, true, false);
-    }
-
-    @Bean
-    public Binding helloBinding() {
-        return BindingBuilder
-                .bind(helloQueue())
-                .to(helloExchange())
-                .with(HELLO_ROUTING_KEY);
-    }
 
     @Bean
     public Queue challengeEventQueue() {
