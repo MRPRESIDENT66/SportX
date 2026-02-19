@@ -8,6 +8,7 @@ import com.example.sportx.Entity.ChallengeEvent;
 import com.example.sportx.Entity.dto.ChallengeListQueryDto;
 import com.example.sportx.Mapper.ChallengeMapper;
 import com.example.sportx.Service.ChallengeService;
+import com.example.sportx.Utils.CacheClient;
 import com.example.sportx.Utils.RabbitMqHelper;
 import com.example.sportx.Entity.vo.PageResult;
 import com.example.sportx.Entity.vo.Result;
@@ -17,12 +18,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
+
+import static com.example.sportx.Utils.RedisConstants.CACHE_CHALLENGE_KEY;
+import static com.example.sportx.Utils.RedisConstants.CACHE_CHALLENGE_TTL;
 
 @Service
 @RequiredArgsConstructor
 public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge> implements ChallengeService {
 
     private final RabbitMqHelper rabbitMqHelper;
+    private final CacheClient cacheClient;
 
     @Transactional
     @Override
@@ -80,7 +86,14 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
         if (challengeId == null) {
             return Result.error("挑战ID不能为空");
         }
-        Challenge challenge = getById(challengeId);
+        Challenge challenge = cacheClient.queryWithPassThrough(
+                CACHE_CHALLENGE_KEY,
+                challengeId,
+                Challenge.class,
+                this::getById,
+                CACHE_CHALLENGE_TTL,
+                TimeUnit.MINUTES
+        );
         if (challenge == null) {
             return Result.error("挑战不存在");
         }

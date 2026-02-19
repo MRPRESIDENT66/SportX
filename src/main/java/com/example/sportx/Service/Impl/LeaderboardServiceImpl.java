@@ -22,5 +22,13 @@ public class LeaderboardServiceImpl implements LeaderboardService {
         stringRedisTemplate.opsForZSet()
                 .incrementScore(RedisConstants.LEADERBOARD_SPOT_HEAT_KEY, spotId.toString(), delta);
     }
-}
 
+    @Override
+    public void incrementUserScore(String userId, double delta) {
+        if (userId == null || userId.isBlank()) {
+            return;
+        }
+        stringRedisTemplate.opsForZSet()
+                .incrementScore(RedisConstants.LEADERBOARD_USER_CHALLENGE_KEY, userId, delta);
+    }
+}

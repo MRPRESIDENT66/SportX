@@ -16,19 +16,39 @@ import com.example.sportx.Utils.RabbitMqHelper;
 import com.example.sportx.Utils.RedisIDWorker;
 import com.example.sportx.Utils.UserHolder;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+import static com.example.sportx.Utils.RedisConstants.LOCK_CHALLENGE_JOIN_KEY;
 
 @Service
 @RequiredArgsConstructor
 public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParMapper, ChallengeParticipation> implements ChallengeParticipationService {
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
+    private static final String LOCK_VALUE_PREFIX = UUID.randomUUID().toString().replace("-", "");
+
+    static {
+        UNLOCK_SCRIPT = new DefaultRedisScript<>();
+        UNLOCK_SCRIPT.setScriptText(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then " +
+                "return redis.call('del', KEYS[1]) " +
+                "else return 0 end"
+        );
+        UNLOCK_SCRIPT.setResultType(Long.class);
+    }
 
     private final ChallengeService challengeService;
     private final RedisIDWorker redisIDWorker;
     private final RabbitMqHelper rabbitMqHelper;
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Override
     @Transactional
@@ -59,37 +79,47 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
             return Result.error("用户ID格式错误！");
         }
 
-        long count = lambdaQuery()
-                .eq(ChallengeParticipation::getUserId, userId)
-                .eq(ChallengeParticipation::getChallengeId, challengeId)
-                .count();
-        if (count > 0) {
-            return Result.error("该用户已经下单！");
+        String lockKey = buildJoinLockKey(challengeId, userId);
+        String lockOwner = buildLockOwner();
+        boolean locked = tryJoinLock(lockKey, lockOwner);
+        if (!locked) {
+            return Result.error("请求过于频繁，请稍后重试");
         }
+        try {
+            long count = lambdaQuery()
+                    .eq(ChallengeParticipation::getUserId, userId)
+                    .eq(ChallengeParticipation::getChallengeId, challengeId)
+                    .count();
+            if (count > 0) {
+                return Result.error("该用户已经下单！");
+            }
 
-        boolean success = challengeService.update()
-                .setSql("joinedSlots = joinedSlots +1")
-                .eq("id", challengeId)
-                .eq("joinedSlots", challenge.getJoinedSlots())
-                .update();
-        if (!success) {
-            return Result.error("活动名额不足！");
+            boolean success = challengeService.update()
+                    .setSql("joinedSlots = joinedSlots +1")
+                    .eq("id", challengeId)
+                    .eq("joinedSlots", challenge.getJoinedSlots())
+                    .update();
+            if (!success) {
+                return Result.error("活动名额不足！");
+            }
+
+            ChallengeParticipation challengeParticipation = buildParticipation(challengeId, challenge.getSpotId(), userId);
+            long orderId = redisIDWorker.nextID("order");
+            challengeParticipation.setId(orderId);
+            save(challengeParticipation);
+
+            ChallengeEvent event = ChallengeEvent.builder()
+                    .eventType(ChallengeEvent.EventType.SIGN_UP_SUCCESS)
+                    .challengeId(challengeId)
+                    .userId(userIdStr)
+                    .spotId(challenge.getSpotId())
+                    .triggerTime(LocalDateTime.now())
+                    .build();
+            rabbitMqHelper.publishChallengeEvent(event);
+            return Result.success(orderId);
+        } finally {
+            unlock(lockKey, lockOwner);
         }
-
-        ChallengeParticipation challengeParticipation = buildParticipation(challengeId, challenge.getSpotId(), userId);
-        long orderId = redisIDWorker.nextID("order");
-        challengeParticipation.setId(orderId);
-        save(challengeParticipation);
-
-        ChallengeEvent event = ChallengeEvent.builder()
-                .eventType(ChallengeEvent.EventType.SIGN_UP_SUCCESS)
-                .challengeId(challengeId)
-                .userId(userIdStr)
-                .spotId(challenge.getSpotId())
-                .triggerTime(LocalDateTime.now())
-                .build();
-        rabbitMqHelper.publishChallengeEvent(event);
-        return Result.success(orderId);
     }
 
     @Override
@@ -187,5 +217,22 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
         challengeParticipation.setChallengeId(challengeId);
         challengeParticipation.setSpotId(spotId);
         return challengeParticipation;
+    }
+
+    private String buildJoinLockKey(Long challengeId, Long userId) {
+        return LOCK_CHALLENGE_JOIN_KEY + challengeId + ":" + userId;
+    }
+
+    private boolean tryJoinLock(String key, String owner) {
+        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(key, owner, 10, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(locked);
+    }
+
+    private void unlock(String key, String owner) {
+        stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(key), owner);
+    }
+
+    private String buildLockOwner() {
+        return LOCK_VALUE_PREFIX + ":" + Thread.currentThread().threadId();
     }
 }

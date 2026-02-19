@@ -2,8 +2,11 @@ package com.example.sportx.Controller;
 
 import com.example.sportx.Entity.vo.Result;
 import com.example.sportx.Entity.vo.SpotHeatRankingDto;
+import com.example.sportx.Entity.vo.UserScoreRankingDto;
 import com.example.sportx.Entity.Spots;
+import com.example.sportx.Entity.User;
 import com.example.sportx.Service.SpotsService;
+import com.example.sportx.Service.UserService;
 import com.example.sportx.Utils.RedisConstants;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -25,6 +28,7 @@ public class LeaderboardController {
 
     private final StringRedisTemplate stringRedisTemplate;
     private final SpotsService spotsService;
+    private final UserService userService;
 
     @GetMapping("/spots/heat")
     public Result<List<SpotHeatRankingDto>> topSpotHeat(@RequestParam(value = "limit", defaultValue = "10") int limit) {
@@ -70,5 +74,37 @@ public class LeaderboardController {
         } catch (NumberFormatException ignored) {
             return null;
         }
+    }
+
+    @GetMapping("/users/score")
+    public Result<List<UserScoreRankingDto>> topUserScore(@RequestParam(value = "limit", defaultValue = "10") int limit) {
+        int sanitizedLimit = Math.min(Math.max(limit, 1), 50);
+
+        Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
+                .reverseRangeWithScores(RedisConstants.LEADERBOARD_USER_CHALLENGE_KEY, 0, sanitizedLimit - 1);
+        if (tuples == null || tuples.isEmpty()) {
+            return Result.success(Collections.emptyList());
+        }
+
+        List<UserScoreRankingDto> rankings = new ArrayList<>(tuples.size());
+        int rank = 1;
+        for (ZSetOperations.TypedTuple<String> tuple : tuples) {
+            if (tuple == null || tuple.getValue() == null) {
+                continue;
+            }
+            String userId = tuple.getValue();
+            User user = userService.getById(userId);
+
+            UserScoreRankingDto dto = new UserScoreRankingDto();
+            dto.setRank(rank++);
+            dto.setUserId(userId);
+            dto.setScore(tuple.getScore());
+            if (user != null) {
+                dto.setNickname(user.getNickname());
+                dto.setCity(user.getCity());
+            }
+            rankings.add(dto);
+        }
+        return Result.success(rankings);
     }
 }

@@ -57,4 +57,24 @@ class LeaderboardServiceImplTest {
                 -0.5
         );
     }
+
+    @Test
+    void incrementUserScore_shouldCallRedisZSetIncrementScore() {
+        when(stringRedisTemplate.opsForZSet()).thenReturn(zSetOperations);
+
+        leaderboardService.incrementUserScore("u1001", 10.0);
+
+        verify(zSetOperations).incrementScore(
+                RedisConstants.LEADERBOARD_USER_CHALLENGE_KEY,
+                "u1001",
+                10.0
+        );
+    }
+
+    @Test
+    void incrementUserScore_shouldDoNothingWhenUserIdBlank() {
+        leaderboardService.incrementUserScore(" ", 10.0);
+
+        verify(stringRedisTemplate, never()).opsForZSet();
+    }
 }

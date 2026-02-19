@@ -38,7 +38,7 @@ public class CacheClient {
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(redisData));
     }
 
-    public <R,ID> R queryWithPassThrough(String keyPrefix, ID id, Class<R> type, Function<ID,R> dfFallback,Long expire, TimeUnit timeUnit) {
+    public <R, ID> R queryWithPassThrough(String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long expire, TimeUnit timeUnit) {
         String key = keyPrefix + id;
         //从redis查询缓存
         String json = stringRedisTemplate.opsForValue().get(key);
@@ -50,7 +50,7 @@ public class CacheClient {
         if(json != null){
             return null;
         }
-        R r=dfFallback.apply(id);
+        R r = dbFallback.apply(id);
         if(r == null){
             this.set(key,"",CACHE_NULL_TTL, TimeUnit.SECONDS);
             return null;
@@ -60,15 +60,25 @@ public class CacheClient {
     }
     private static final ExecutorService CACHE_REBUILD_EXECUTE = Executors.newFixedThreadPool(10);
 
-    public <R,ID> R queryWithLogicalExpire(String keyPrefix, ID id , Class<R> type, Function<ID,R> dfFallback,Long expire, TimeUnit timeUnit) {
+    public <R, ID> R queryWithLogicalExpire(String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long expire, TimeUnit timeUnit) {
         String key = keyPrefix + id;
         String json = stringRedisTemplate.opsForValue().get(key);
 
+        // 逻辑过期方案在缓存未预热时，回退到DB并写入缓存，避免直接返回null
         if (StrUtil.isBlank(json)) {
-            return null;
+            R dbResult = dbFallback.apply(id);
+            if (dbResult == null) {
+                this.set(key, "", CACHE_NULL_TTL, TimeUnit.SECONDS);
+                return null;
+            }
+            this.setWithLogicalExpire(key, dbResult, expire, timeUnit);
+            return dbResult;
         }
         //命中的话将信息转化为对象
         RedisData redisData = JSONUtil.toBean(json, RedisData.class);
+        if (redisData == null || redisData.getData() == null || redisData.getExpireTime() == null) {
+            return null;
+        }
         R r =JSONUtil.toBean((JSONObject) redisData.getData(),type);
         LocalDateTime expireTime = redisData.getExpireTime();
         // 判断是否过期
@@ -83,9 +93,13 @@ public class CacheClient {
             CACHE_REBUILD_EXECUTE.submit(()->{
                 try{
                     //查询数据库
-                    R r1 =dfFallback.apply(id);
-                    //写入redis
-                    this.setWithLogicalExpire(key,r1,expire,timeUnit);
+                    R r1 = dbFallback.apply(id);
+                    if (r1 == null) {
+                        this.set(key, "", CACHE_NULL_TTL, TimeUnit.SECONDS);
+                    } else {
+                        //写入redis
+                        this.setWithLogicalExpire(key, r1, expire, timeUnit);
+                    }
                 }catch (Exception e){
                     throw new RuntimeException(e);
                 }finally {

@@ -2,10 +2,12 @@ package com.example.sportx.RabbitMQ;
 
 import com.example.sportx.Entity.ChallengeEvent;
 import com.example.sportx.Service.LeaderboardService;
+import com.example.sportx.Service.FailedMessageService;
 import com.example.sportx.Service.NotificationService;
 import com.example.sportx.Utils.NotificationKeys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -16,16 +18,20 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import static com.example.sportx.RabbitMQ.RabbitConstants.CHALLENGE_EVENT_QUEUE;
+import static com.example.sportx.RabbitMQ.RabbitConstants.CHALLENGE_EVENT_DLX_QUEUE;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ChallengeEventListener {
+    private static final double SIGNUP_SCORE_DELTA = 10D;
+    private static final double CANCEL_SCORE_DELTA = -10D;
 
     private final NotificationService notificationService;
     private final StringRedisTemplate redisTemplate;
     private final ChallengeEventScheduler scheduler;
     private final LeaderboardService leaderboardService;
+    private final FailedMessageService failedMessageService;
 
     @RabbitListener(queues = CHALLENGE_EVENT_QUEUE)
     public void onChallengeEvent(@Payload ChallengeEvent event) {
@@ -36,25 +42,40 @@ public class ChallengeEventListener {
         if (!shouldDeliver(event)) {
             return;
         }
-        switch (event.getEventType()) {
-            case SIGN_UP_SUCCESS:
-                notificationService.notifySignupSuccess(event);
-                leaderboardService.incrementSpotHeat(event.getSpotId(), 1D);
-                break;
-            case CANCEL_SUCCESS:
-                notificationService.notifyCancelSuccess(event);
-                leaderboardService.incrementSpotHeat(event.getSpotId(), -1D);
-                break;
-            case START_REMINDER:
-                notificationService.notifyStartReminder(event);
-                break;
-            case END_REMINDER:
-                notificationService.notifyEndReminder(event);
-                break;
-            default:
-                log.warn("Unsupported challenge event type: {}", event.getEventType());
+        try {
+            switch (event.getEventType()) {
+                case SIGN_UP_SUCCESS:
+                    notificationService.notifySignupSuccess(event);
+                    leaderboardService.incrementSpotHeat(event.getSpotId(), 1D);
+                    leaderboardService.incrementUserScore(event.getUserId(), SIGNUP_SCORE_DELTA);
+                    break;
+                case CANCEL_SUCCESS:
+                    notificationService.notifyCancelSuccess(event);
+                    leaderboardService.incrementSpotHeat(event.getSpotId(), -1D);
+                    leaderboardService.incrementUserScore(event.getUserId(), CANCEL_SCORE_DELTA);
+                    break;
+                case START_REMINDER:
+                    notificationService.notifyStartReminder(event);
+                    break;
+                case END_REMINDER:
+                    notificationService.notifyEndReminder(event);
+                    break;
+                default:
+                    log.warn("Unsupported challenge event type: {}", event.getEventType());
+            }
+            markDelivered(event);
+        } catch (Exception exception) {
+            log.error("Challenge event consume failed, will retry or dead-letter. event={}", event, exception);
+            throw exception;
         }
-        markDelivered(event);
+    }
+
+    @RabbitListener(queues = CHALLENGE_EVENT_DLX_QUEUE)
+    public void onDeadLetter(@Payload Message message) {
+        String payload = message == null ? null : new String(message.getBody());
+        String reason = "message moved to DLQ after retry exhausted";
+        failedMessageService.recordDeadLetter(message, reason);
+        log.error("Challenge event moved to DLQ and persisted. payload={}", payload);
     }
 
     private boolean shouldDeliver(ChallengeEvent event) {

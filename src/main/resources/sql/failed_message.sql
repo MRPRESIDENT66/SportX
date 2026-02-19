@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS failed_message (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    queue_name VARCHAR(100),
+    exchange_name VARCHAR(100),
+    routing_key VARCHAR(100),
+    payload TEXT NOT NULL,
+    reason VARCHAR(500),
+    status VARCHAR(30) NOT NULL DEFAULT 'NEW',
+    retry_count INT NOT NULL DEFAULT 0,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);

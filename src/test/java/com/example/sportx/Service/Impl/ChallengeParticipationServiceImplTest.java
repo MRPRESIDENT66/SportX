@@ -16,11 +16,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -39,10 +42,16 @@ class ChallengeParticipationServiceImplTest {
     @Mock
     private RabbitMqHelper rabbitMqHelper;
 
+    @Mock
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Mock
+    private ValueOperations<String, String> valueOperations;
+
     @Test
     void joinChallenge_shouldReturnErrorWhenChallengeNotFound() {
         ChallengeParticipationServiceImpl challengeParticipationService =
-                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper);
+                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper, stringRedisTemplate);
         when(challengeService.getById(1L)).thenReturn(null);
 
         Result result = challengeParticipationService.joinChallenge(1L);
@@ -55,7 +64,7 @@ class ChallengeParticipationServiceImplTest {
     @Test
     void joinChallenge_shouldReturnErrorWhenRegistrationNotStarted() {
         ChallengeParticipationServiceImpl challengeParticipationService =
-                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper);
+                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper, stringRedisTemplate);
         Challenge challenge = baseChallenge();
         challenge.setStartTime(LocalDate.now().plusDays(1));
         when(challengeService.getById(1L)).thenReturn(challenge);
@@ -69,7 +78,7 @@ class ChallengeParticipationServiceImplTest {
     @Test
     void joinChallenge_shouldReturnErrorWhenRegistrationEnded() {
         ChallengeParticipationServiceImpl challengeParticipationService =
-                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper);
+                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper, stringRedisTemplate);
         Challenge challenge = baseChallenge();
         challenge.setEndTime(LocalDate.now().minusDays(1));
         when(challengeService.getById(1L)).thenReturn(challenge);
@@ -83,7 +92,7 @@ class ChallengeParticipationServiceImplTest {
     @Test
     void joinChallenge_shouldReturnErrorWhenSlotsAreFull() {
         ChallengeParticipationServiceImpl challengeParticipationService =
-                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper);
+                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper, stringRedisTemplate);
         Challenge challenge = baseChallenge();
         challenge.setTotalSlots(100);
         challenge.setJoinedSlots(100);
@@ -98,7 +107,7 @@ class ChallengeParticipationServiceImplTest {
     @Test
     void joinChallenge_shouldReturnErrorWhenUserAlreadyJoined() {
         ChallengeParticipationServiceImpl service = spy(
-                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper)
+                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper, stringRedisTemplate)
         );
         LambdaQueryChainWrapper<ChallengeParticipation> queryChain =
                 org.mockito.Mockito.mock(LambdaQueryChainWrapper.class);
@@ -108,6 +117,8 @@ class ChallengeParticipationServiceImplTest {
         UserHolder.saveUser(user);
         try {
             when(challengeService.getById(1L)).thenReturn(baseChallenge());
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+            when(valueOperations.setIfAbsent(any(), any(), anyLong(), any())).thenReturn(true);
             doReturn(queryChain).when(service).lambdaQuery();
             when(queryChain.eq(any(), any())).thenReturn(queryChain);
             when(queryChain.count()).thenReturn(1L);
@@ -126,7 +137,7 @@ class ChallengeParticipationServiceImplTest {
     @Test
     void joinChallenge_shouldCreateOrderAndPublishEventWhenValid() {
         ChallengeParticipationServiceImpl service = spy(
-                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper)
+                new ChallengeParticipationServiceImpl(challengeService, redisIDWorker, rabbitMqHelper, stringRedisTemplate)
         );
         LambdaQueryChainWrapper<ChallengeParticipation> queryChain =
                 org.mockito.Mockito.mock(LambdaQueryChainWrapper.class);
@@ -137,6 +148,8 @@ class ChallengeParticipationServiceImplTest {
         UserHolder.saveUser(user);
         try {
             when(challengeService.getById(1L)).thenReturn(baseChallenge());
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+            when(valueOperations.setIfAbsent(any(), any(), anyLong(), any())).thenReturn(true);
             doReturn(queryChain).when(service).lambdaQuery();
             when(queryChain.eq(any(), any())).thenReturn(queryChain);
             when(queryChain.count()).thenReturn(0L);
@@ -164,6 +177,30 @@ class ChallengeParticipationServiceImplTest {
             ArgumentCaptor<ChallengeEvent> eventCaptor = ArgumentCaptor.forClass(ChallengeEvent.class);
             verify(rabbitMqHelper).publishChallengeEvent(eventCaptor.capture());
             assertThat(eventCaptor.getValue().getEventType()).isEqualTo(ChallengeEvent.EventType.SIGN_UP_SUCCESS);
+        } finally {
+            UserHolder.removeUser();
+        }
+    }
+
+    @Test
+    void joinChallenge_shouldReturnErrorWhenLockNotAcquired() {
+        ChallengeParticipationServiceImpl service = new ChallengeParticipationServiceImpl(
+                challengeService, redisIDWorker, rabbitMqHelper, stringRedisTemplate
+        );
+        User user = new User();
+        user.setId("123");
+        UserHolder.saveUser(user);
+        try {
+            when(challengeService.getById(1L)).thenReturn(baseChallenge());
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+            when(valueOperations.setIfAbsent(any(), any(), anyLong(), any())).thenReturn(false);
+
+            Result result = service.joinChallenge(1L);
+
+            assertThat(result.getCode()).isEqualTo(1);
+            assertThat(result.getMessage()).isEqualTo("请求过于频繁，请稍后重试");
+            verify(rabbitMqHelper, never()).publishChallengeEvent(any());
+            verify(challengeService, never()).update();
         } finally {
             UserHolder.removeUser();
         }
