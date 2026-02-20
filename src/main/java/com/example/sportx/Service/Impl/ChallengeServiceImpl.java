@@ -33,18 +33,21 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
     @Transactional
     @Override
     public void addChallenge(Challenge challenge) {
+        // 创建挑战后立即注册“开赛/结束”提醒事件，后续由调度器按触发时间投递。
         save(challenge);
         scheduleReminders(challenge);
     }
 
     @Override
     public Result<PageResult<Challenge>> listChallenges(ChallengeListQueryDto queryDto) {
+        // 统一处理分页参数，防止调用方传入异常页码或过大 size。
         int pageNo = queryDto.getPage() == null || queryDto.getPage() < 1 ? 1 : queryDto.getPage();
         int pageSize = queryDto.getSize() == null || queryDto.getSize() < 1 ? 10 : Math.min(queryDto.getSize(), 50);
 
         Page<Challenge> page = new Page<>(pageNo, pageSize);
         LambdaQueryWrapper<Challenge> qw = new LambdaQueryWrapper<>();
 
+        // 条件过滤：场馆、关键词。
         if (queryDto.getSpotId() != null) {
             qw.eq(Challenge::getSpotId, queryDto.getSpotId());
         }
@@ -52,6 +55,7 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
             qw.like(Challenge::getChallengeName, queryDto.getKeyword().trim());
         }
 
+        // 状态过滤基于当前日期推导，避免单独维护状态字段导致不一致。
         LocalDate today = LocalDate.now();
         String status = queryDto.getStatus();
         if (status != null && !status.isBlank()) {
@@ -86,6 +90,7 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
         if (challengeId == null) {
             return Result.error("挑战ID不能为空");
         }
+        // 挑战详情走缓存穿透保护，缓存未命中才回库。
         Challenge challenge = cacheClient.queryWithPassThrough(
                 CACHE_CHALLENGE_KEY,
                 challengeId,
@@ -104,6 +109,7 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
         if (challenge == null || challenge.getId() == null) {
             return;
         }
+        // startTime/endTime 统一取当天 00:00 作为提醒触发点，示例项目先采用日粒度提醒。
         if (challenge.getStartTime() != null) {
             ChallengeEvent startEvent = ChallengeEvent.builder()
                     .eventType(ChallengeEvent.EventType.START_REMINDER)

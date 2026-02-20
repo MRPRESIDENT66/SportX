@@ -10,6 +10,7 @@ import com.example.sportx.Mapper.SpotFavoriteMapper;
 import com.example.sportx.Mapper.SpotsMapper;
 import com.example.sportx.Service.FavoriteService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
@@ -27,6 +28,7 @@ public class FavoriteServiceImpl implements FavoriteService {
 
     @Override
     public Result<Void> addSpotFavorite(String userId, Long spotId) {
+        // 1) 登录与参数校验。
         if (userId == null || userId.isBlank()) {
             return Result.error("用户未登录");
         }
@@ -34,11 +36,13 @@ public class FavoriteServiceImpl implements FavoriteService {
             return Result.error("场馆ID不能为空");
         }
 
+        // 2) 收藏前校验场馆存在，避免脏数据。
         Spots spot = spotsMapper.selectById(spotId);
         if (spot == null) {
             return Result.error("场馆不存在");
         }
 
+        // 3) 应用层先查重，减少重复写库。
         LambdaQueryWrapper<SpotFavorite> qw = new LambdaQueryWrapper<>();
         qw.eq(SpotFavorite::getUserId, userId)
                 .eq(SpotFavorite::getSpotId, spotId);
@@ -50,12 +54,18 @@ public class FavoriteServiceImpl implements FavoriteService {
         SpotFavorite favorite = new SpotFavorite();
         favorite.setUserId(userId);
         favorite.setSpotId(spotId);
-        spotFavoriteMapper.insert(favorite);
+        try {
+            spotFavoriteMapper.insert(favorite);
+        } catch (DuplicateKeyException duplicateKeyException) {
+            // 并发下唯一索引兜底命中，返回同样的业务语义。
+            return Result.error("你已收藏该场馆");
+        }
         return Result.success();
     }
 
     @Override
     public Result<Void> deleteSpotFavorite(String userId, Long spotId) {
+        // 删除按 user_id + spot_id 条件执行，避免误删其他用户数据。
         if (userId == null || userId.isBlank()) {
             return Result.error("用户未登录");
         }
@@ -97,6 +107,7 @@ public class FavoriteServiceImpl implements FavoriteService {
         if (favorites == null || favorites.isEmpty()) {
             spotRecords = Collections.emptyList();
         } else {
+            // 先批量查场馆，再按收藏顺序重排，保证返回顺序与收藏时间一致。
             List<Long> spotIds = favorites.stream().map(SpotFavorite::getSpotId).toList();
             List<Spots> spots = spotsMapper.selectBatchIds(spotIds);
             Map<Long, Spots> spotsById = spots.stream()

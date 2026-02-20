@@ -5,6 +5,11 @@ public class RedisConstants {
     public static final Long LOGIN_CODE_TTL = 2L;
     public static final String LOGIN_TOKEN_KEY = "login:token:";
     public static final Long LOGIN_TOKEN_TTL = 30L;
+    public static final String LOGIN_FAIL_KEY = "login:fail:";
+    public static final String LOGIN_BLOCK_KEY = "login:block:";
+    public static final Long LOGIN_FAIL_WINDOW_TTL = 10L;
+    public static final Long LOGIN_BLOCK_TTL = 30L;
+    public static final Long LOGIN_FAIL_MAX = 5L;
     public static final String CACHE_SHOP_KEY = "cache:shop:";
     public static final String CACHE_CHALLENGE_KEY = "cache:challenge:";
     public static final String LOCK_SHOP_KEY = "lock:shop:";

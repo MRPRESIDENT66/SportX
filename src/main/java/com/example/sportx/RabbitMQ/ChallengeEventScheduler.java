@@ -29,6 +29,7 @@ public class ChallengeEventScheduler {
             return;
         }
         try {
+            // 以 JSON 作为 ZSet member，score 使用触发时间秒级时间戳。
             String payload = objectMapper.writeValueAsString(event);
             long epochSecond = event.getTriggerTime().atZone(ZoneId.systemDefault()).toEpochSecond();
             redisTemplate.opsForZSet().add(NotificationKeys.scheduledSetKey(), payload, epochSecond);
@@ -40,6 +41,7 @@ public class ChallengeEventScheduler {
 
     @Scheduled(fixedDelay = 60000)
     public void dispatchDueEvents() {
+        // 每分钟扫描一次“到期消息”，避免未来消息过早进入消费链路。
         long now = Instant.now().getEpochSecond();
         Set<String> payloads = redisTemplate.opsForZSet().rangeByScore(NotificationKeys.scheduledSetKey(), 0, now);
         if (payloads == null || payloads.isEmpty()) {
@@ -50,8 +52,10 @@ public class ChallengeEventScheduler {
                 ChallengeEvent event = objectMapper.readValue(payload, ChallengeEvent.class);
                 rabbitMqHelper.publishChallengeEvent(event);
                 log.info("Dispatched scheduled challenge event: {}", event);
+                // 发布成功后再从调度集合移除，降低消息丢失风险。
                 redisTemplate.opsForZSet().remove(NotificationKeys.scheduledSetKey(), payload);
             } catch (JsonProcessingException e) {
+                // 反序列化失败保留原数据，便于后续人工排查。
                 log.error("Failed to parse scheduled event", e);
             }
         }

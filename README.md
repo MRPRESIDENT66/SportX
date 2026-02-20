@@ -1,95 +1,91 @@
 # SportX Backend
 
-SportX is a Java backend project for a sports challenge platform.
-It focuses on challenge lifecycle management, user auth, Redis caching, and RabbitMQ-based event notifications.
+SportX is a Spring Boot backend for a sports challenge platform.  
+It demonstrates practical backend engineering with Redis caching, distributed locking, RabbitMQ event-driven workflows, DLQ replay, and layered testing.
 
-## 1. Tech Stack
+## Tech Stack
 - Java 23
 - Spring Boot 3.4.x
 - MyBatis-Plus
 - MySQL
 - Redis
 - RabbitMQ
-- Lombok
-- JUnit 5 + Mockito + MockMvc
+- Spring Validation
+- BCrypt (`spring-security-crypto`)
+- OpenAPI/Swagger (`springdoc-openapi`)
+- JUnit 5, Mockito, MockMvc
 
-## 2. Core Features
-### User Module
-- `POST /user/register` Register user
-- `POST /user/login` Login by SMS code
-- `POST /user/regularLogin` Login by phone + password
-- `POST /user/logout` Logout (invalidate Redis token)
-- `GET /user/me` Get current user from token context
-- `GET /user/profile` Get user profile
-- `PUT /user/profile` Update user profile (`nickname/avatar/bio/gender/city`)
+## API Documentation
+- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+- OpenAPI JSON: `http://localhost:8080/v3/api-docs`
 
-### Spot Module
-- `GET /spots/{id}` Spot detail
-- `PUT /spots` Update spot
-- `POST /spots/search` Spot search (pagination + filters)
+## Core Features
 
-### Challenge Module
-- `GET /challenge/list` Challenge list (status/pagination/keyword/spot filters)
-- `GET /challenge/{id}` Challenge detail
-- `GET /challenge/my` My participation records
-- `POST /challenge/add` Create challenge
-- `POST /challenge/register/{id}` Register challenge
-- `POST /challenge/cancel/{id}` Cancel registration and rollback slot
+### 1. User & Authentication
+- `POST /user/code` send SMS code (demo returns code directly)
+- `POST /user/login` login by phone + code
+- `POST /user/regularLogin` login by phone + password
+- `POST /user/register` register user
+- `POST /user/logout` logout (token invalidation in Redis)
+- `GET /user/me` current user from request context
+- `GET /user/profile` get profile
+- `PUT /user/profile` update profile
 
-### Leaderboard Module
-- `GET /leaderboard/spots/heat` Spot heat ranking (Redis ZSet)
+Highlights:
+- Redis token session + auto TTL refresh interceptor
+- BCrypt password hashing
+- Login rate limiting / anti-bruteforce
+- Request validation + global exception handling
 
-### Event / Notification Module (RabbitMQ)
-- Challenge events:
-  - `SIGN_UP_SUCCESS`
-  - `CANCEL_SUCCESS`
-  - `START_REMINDER`
-  - `END_REMINDER`
-- Event consumer handles:
-  - notification dispatch
-  - leaderboard heat score update
+### 2. Spot
+- `GET /spots/{id}` spot detail (with cache)
+- `PUT /spots` update spot (cache invalidation)
+- `POST /spots/search` spot search with filters + pagination
 
-## 3. Project Structure
-- `src/main/java/com/example/sportx/Controller` HTTP APIs
-- `src/main/java/com/example/sportx/Service` Service contracts
-- `src/main/java/com/example/sportx/Service/Impl` Service implementations
-- `src/main/java/com/example/sportx/Mapper` MyBatis-Plus mappers
-- `src/main/java/com/example/sportx/Entity` persistence entities
-- `src/main/java/com/example/sportx/Entity/dto` request DTOs
-- `src/main/java/com/example/sportx/Entity/vo` response VOs
-- `src/main/java/com/example/sportx/Utils` utils, interceptors, redis/mq helpers
-- `src/main/java/com/example/sportx/RabbitMQ` mq config/listener/scheduler
+### 3. Challenge
+- `GET /challenge/list` challenge list
+- `GET /challenge/{id}` challenge detail (cache with pass-through)
+- `GET /challenge/my` current user participation records
+- `POST /challenge/add` create challenge
+- `POST /challenge/register/{id}` register challenge
+- `POST /challenge/cancel/{id}` cancel registration
 
-## 4. Local Run
-### 4.1 Prerequisites
-- MySQL running on `127.0.0.1:3306`
-- Redis running on `127.0.0.1:6379`
-- RabbitMQ running on `127.0.0.1:5672`
+Highlights:
+- Redis + Lua distributed lock on register flow
+- Slot control with conditional DB update (CAS-style)
+- Unique index + duplicate-key fallback handling
+- Cache invalidation after register/cancel
 
-### 4.2 Config
-Edit `/src/main/resources/application.properties` if needed:
-- datasource
-- redis
-- rabbitmq
+### 4. Favorite
+- `POST /favorite/spots/{id}` add favorite
+- `DELETE /favorite/spots/{id}` remove favorite
+- `GET /favorite/spots` list favorites
 
-### 4.3 Start
-```bash
-./mvnw spring-boot:run
-```
+### 5. Notification
+- `GET /notification/list` list notifications
+- `PUT /notification/read/{id}` mark as read
 
-### 4.4 Test / Build
-```bash
-./mvnw test
-./mvnw package
-```
+Notification sources:
+- signup success
+- cancel success
+- challenge start reminder
+- challenge end reminder
 
-## 5. Authentication Flow
-1. Login/Register returns token.
-2. Client sends token in header: `authorization: <token>`.
-3. `RefreshTokenInterceptor` loads user from Redis and refreshes TTL.
-4. `LoginInterceptor` rejects protected endpoints when no user context.
+### 6. Leaderboard (Redis ZSet)
+- `GET /leaderboard/spots/heat` top spot heat
+- `GET /leaderboard/users/score` top user score
 
-## 6. Data Model (Current)
+### 7. MQ Reliability & Operations
+- Challenge event publishing and consuming
+- Retry policy on consumer failure
+- Dead-letter queue routing
+- Idempotent consume markers in Redis
+- Failed-message persistence for diagnosis
+- Failed-message replay endpoint:
+  - `GET /mq/failed/list`
+  - `POST /mq/failed/retry/{id}`
+
+## Data Model
 Main tables:
 - `user`
 - `spots`
@@ -97,24 +93,65 @@ Main tables:
 - `challenge_participation`
 - `notifications`
 - `spot_favorites`
+- `failed_message`
 - `leaderboard_snapshot`
 - `leaderboard_entry`
 
-## 7. Engineering Notes
-- Constructor injection with `final + @RequiredArgsConstructor`
-- Typed API response: `Result<T>`
-- DTO / VO separation for better maintainability
-- Core business logic covered by unit and integration tests
+Important constraints:
+- unique `(user_id, challenge_id)` on `challenge_participation`
+- unique `(user_id, spot_id)` on `spot_favorites`
 
-## 8. Next Steps
-- Add challenge detail cache (Redis)
-- Add stronger registration/cancel concurrency protection
-- Add API docs (OpenAPI/Swagger)
-- Add CI pipeline (build + test)
-- Add RAG-based AI assistant (LangChain4j)
+## Project Structure
+- `src/main/java/com/example/sportx/Controller` REST controllers
+- `src/main/java/com/example/sportx/Service` service contracts
+- `src/main/java/com/example/sportx/Service/Impl` service implementations
+- `src/main/java/com/example/sportx/Mapper` MyBatis-Plus mappers
+- `src/main/java/com/example/sportx/Entity` entities
+- `src/main/java/com/example/sportx/Entity/dto` request DTOs
+- `src/main/java/com/example/sportx/Entity/vo` response models
+- `src/main/java/com/example/sportx/Utils` caching, MQ, Redis, interceptors
+- `src/main/java/com/example/sportx/RabbitMQ` MQ config/listener/scheduler
+- `src/main/resources/sql` SQL scripts (indexes / failed-message table)
 
----
-If you are reviewing this project for backend internship roles, feel free to focus on:
-- challenge register/cancel transaction logic
-- Redis + RabbitMQ integration
-- test coverage and code structure
+## Local Setup
+
+### Prerequisites
+- MySQL running on `127.0.0.1:3306`
+- Redis running on `127.0.0.1:6379`
+- RabbitMQ running on `127.0.0.1:5672`
+
+### Configuration
+Edit:
+- `src/main/resources/application.properties`
+
+### Run
+```bash
+./mvnw spring-boot:run
+```
+
+### Test / Build
+```bash
+./mvnw test
+./mvnw package
+```
+
+## SQL Scripts
+- Create failed-message table:
+  - `src/main/resources/sql/failed_message.sql`
+- Create unique indexes (compatible script):
+  - `src/main/resources/sql/unique_indexes.sql`
+
+## Engineering Notes
+- Constructor injection with `final` + `@RequiredArgsConstructor`
+- Typed response envelope: `Result<T>`
+- Validation-first controllers (`@Validated`, `@Valid`)
+- Global exception mapping with business-friendly messages
+- Redis cache pass-through + logical-expire utility
+- Redis + Lua lock release safety
+- Event-driven architecture with retry/DLQ/replay
+
+## Suggested Next Step (AI Phase)
+- Start AI features after this backend baseline:
+  - retrieval service abstraction
+  - RAG-ready data ingestion pipeline
+  - AI module isolated from core transaction paths

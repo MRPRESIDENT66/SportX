@@ -17,6 +17,7 @@ public class NotificationQueryServiceImpl extends ServiceImpl<NotificationMapper
 
     @Override
     public Result<PageResult<Notification>> listMyNotifications(String userId, Integer page, Integer size, Boolean isRead) {
+        // 仅允许查询当前登录用户自己的通知。
         if (userId == null || userId.isBlank()) {
             return Result.error("用户未登录");
         }
@@ -27,6 +28,7 @@ public class NotificationQueryServiceImpl extends ServiceImpl<NotificationMapper
         LambdaQueryWrapper<Notification> qw = new LambdaQueryWrapper<>();
         qw.eq(Notification::getUserId, userId);
         if (isRead != null) {
+            // isRead 为空时不过滤，支持“全部通知”查询。
             qw.eq(Notification::getIsRead, isRead);
         }
         qw.orderByDesc(Notification::getCreateTime);
@@ -52,6 +54,7 @@ public class NotificationQueryServiceImpl extends ServiceImpl<NotificationMapper
                 .eq(Notification::getId, notificationId)
                 .eq(Notification::getUserId, userId)
                 .one();
+        // 同时校验 id + userId，防止越权修改他人通知状态。
         if (notification == null) {
             return Result.error("通知不存在或无权限");
         }

@@ -23,6 +23,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public void notifySignupSuccess(ChallengeEvent event) {
+        // 单播通知：仅发给触发事件的用户。
         saveSingleUserNotification(
                 event.getUserId(),
                 event.getEventType().name(),
@@ -37,6 +38,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public void notifyCancelSuccess(ChallengeEvent event) {
+        // 单播通知：取消报名后只通知当前用户。
         saveSingleUserNotification(
                 event.getUserId(),
                 event.getEventType().name(),
@@ -51,6 +53,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public void notifyStartReminder(ChallengeEvent event) {
+        // 广播通知：根据挑战ID查报名用户并批量发送。
         notifyParticipants(
                 event,
                 "开赛提醒",
@@ -63,6 +66,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public void notifyEndReminder(ChallengeEvent event) {
+        // 广播通知：结束提醒同样面向所有报名用户。
         notifyParticipants(
                 event,
                 "结束提醒",
@@ -77,6 +81,7 @@ public class NotificationServiceImpl implements NotificationService {
         if (event.getChallengeId() == null) {
             return;
         }
+        // 通过 challenge_participation 查该挑战的所有参与者。
         LambdaQueryWrapper<ChallengeParticipation> qw = new LambdaQueryWrapper<>();
         qw.eq(ChallengeParticipation::getChallengeId, event.getChallengeId());
         List<ChallengeParticipation> participations = challengeParMapper.selectList(qw);
@@ -87,6 +92,7 @@ public class NotificationServiceImpl implements NotificationService {
             if (participation == null || participation.getUserId() == null) {
                 continue;
             }
+            // user_id 在报名表是 Long，通知表按 String 存储，需转换。
             saveSingleUserNotification(
                     String.valueOf(participation.getUserId()),
                     event.getEventType().name(),
@@ -100,6 +106,7 @@ public class NotificationServiceImpl implements NotificationService {
         if (userId == null || userId.isBlank()) {
             return;
         }
+        // 通知统一默认未读，前端通过 read 接口变更状态。
         Notification notification = new Notification();
         notification.setUserId(userId);
         notification.setType(type);

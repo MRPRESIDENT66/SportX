@@ -40,16 +40,17 @@ public class CacheClient {
 
     public <R, ID> R queryWithPassThrough(String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long expire, TimeUnit timeUnit) {
         String key = keyPrefix + id;
-        //从redis查询缓存
+        // 1) 先查缓存，命中直接返回。
         String json = stringRedisTemplate.opsForValue().get(key);
         if (StrUtil.isNotBlank(json)) {
             return JSONUtil.toBean(json, type);
         }
 
-        // 判断命中的是否为空值
+        // 2) 命中空字符串占位，说明该数据不存在（防穿透）。
         if(json != null){
             return null;
         }
+        // 3) 回源数据库并回填缓存。
         R r = dbFallback.apply(id);
         if(r == null){
             this.set(key,"",CACHE_NULL_TTL, TimeUnit.SECONDS);
@@ -64,7 +65,7 @@ public class CacheClient {
         String key = keyPrefix + id;
         String json = stringRedisTemplate.opsForValue().get(key);
 
-        // 逻辑过期方案在缓存未预热时，回退到DB并写入缓存，避免直接返回null
+        // 1) 逻辑过期方案下，未预热则先回源并写入“带过期时间”的缓存对象。
         if (StrUtil.isBlank(json)) {
             R dbResult = dbFallback.apply(id);
             if (dbResult == null) {
@@ -74,19 +75,18 @@ public class CacheClient {
             this.setWithLogicalExpire(key, dbResult, expire, timeUnit);
             return dbResult;
         }
-        //命中的话将信息转化为对象
+        // 2) 反序列化缓存包装对象，读取业务数据 + 逻辑过期时间。
         RedisData redisData = JSONUtil.toBean(json, RedisData.class);
         if (redisData == null || redisData.getData() == null || redisData.getExpireTime() == null) {
             return null;
         }
         R r =JSONUtil.toBean((JSONObject) redisData.getData(),type);
         LocalDateTime expireTime = redisData.getExpireTime();
-        // 判断是否过期
+        // 3) 未过期直接返回旧值。
         if(expireTime.isAfter(LocalDateTime.now())){
-            // 未过期，返回商家信息
             return r;
         }
-        // 已过期需要重建缓存
+        // 4) 已过期：尝试加锁异步重建，当前线程先返回旧值，降低请求抖动。
         String lockKey = LOCK_SHOP_KEY + id;
         boolean isLock = tryLock(lockKey);
         if(isLock){
@@ -95,9 +95,10 @@ public class CacheClient {
                     //查询数据库
                     R r1 = dbFallback.apply(id);
                     if (r1 == null) {
+                        // 空值也写占位，避免击穿后反复回源。
                         this.set(key, "", CACHE_NULL_TTL, TimeUnit.SECONDS);
                     } else {
-                        //写入redis
+                        // 写入新的逻辑过期缓存。
                         this.setWithLogicalExpire(key, r1, expire, timeUnit);
                     }
                 }catch (Exception e){
@@ -113,6 +114,7 @@ public class CacheClient {
 
 
     private boolean tryLock(String key){
+        // 简单互斥锁：setIfAbsent + 短 TTL，避免重建任务堆积。
         Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", 10, TimeUnit.SECONDS);
         return BooleanUtil.isTrue(flag);
     }

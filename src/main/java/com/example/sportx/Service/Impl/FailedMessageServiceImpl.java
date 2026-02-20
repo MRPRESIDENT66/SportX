@@ -32,6 +32,7 @@ public class FailedMessageServiceImpl implements FailedMessageService {
 
     @Override
     public void recordDeadLetter(Message message, String reason) {
+        // 将死信消息完整落库，后续可按状态筛选、人工回放。
         if (message == null) {
             return;
         }
@@ -48,6 +49,7 @@ public class FailedMessageServiceImpl implements FailedMessageService {
 
     @Override
     public Result<PageResult<FailedMessage>> listFailedMessages(Integer page, Integer size, String status) {
+        // 运维排查入口：支持分页和状态过滤。
         int pageNo = page == null || page < 1 ? 1 : page;
         int pageSize = size == null || size < 1 ? 10 : Math.min(size, 50);
 
@@ -69,6 +71,7 @@ public class FailedMessageServiceImpl implements FailedMessageService {
 
     @Override
     public Result<Void> retryFailedMessage(Long id) {
+        // 手动回放入口：把失败 payload 重新投递到挑战事件交换机。
         if (id == null) {
             return Result.error("失败消息ID不能为空");
         }
@@ -79,9 +82,11 @@ public class FailedMessageServiceImpl implements FailedMessageService {
 
         int nextRetry = (failedMessage.getRetryCount() == null ? 0 : failedMessage.getRetryCount()) + 1;
         try {
+            // payload 按 ChallengeEvent 反序列化，复用同一事件链路。
             ChallengeEvent event = objectMapper.readValue(failedMessage.getPayload(), ChallengeEvent.class);
             rabbitMqHelper.publishChallengeEvent(event);
 
+            // 回放成功后更新状态与重试次数。
             FailedMessage toUpdate = new FailedMessage();
             toUpdate.setId(id);
             toUpdate.setRetryCount(nextRetry);
@@ -90,6 +95,7 @@ public class FailedMessageServiceImpl implements FailedMessageService {
             return Result.success();
         } catch (Exception exception) {
             log.error("Retry failed message error, id={}", id, exception);
+            // 回放失败保留错误原因，便于再次排查。
             FailedMessage toUpdate = new FailedMessage();
             toUpdate.setId(id);
             toUpdate.setRetryCount(nextRetry);

@@ -35,10 +35,12 @@ public class ChallengeEventListener {
 
     @RabbitListener(queues = CHALLENGE_EVENT_QUEUE)
     public void onChallengeEvent(@Payload ChallengeEvent event) {
+        // 主消费入口：消费挑战事件并驱动通知、榜单等后续逻辑。
         if (event == null || event.getEventType() == null) {
             log.warn("Received malformed challenge event: {}", event);
             return;
         }
+        // 幂等/调度检查：已处理过则跳过；未来事件则重新调度。
         if (!shouldDeliver(event)) {
             return;
         }
@@ -63,8 +65,10 @@ public class ChallengeEventListener {
                 default:
                     log.warn("Unsupported challenge event type: {}", event.getEventType());
             }
+            // 业务成功后写入幂等标记，防止重复消费。
             markDelivered(event);
         } catch (Exception exception) {
+            // 抛出异常交由 Rabbit 重试机制处理，重试失败后进入 DLQ。
             log.error("Challenge event consume failed, will retry or dead-letter. event={}", event, exception);
             throw exception;
         }
@@ -72,6 +76,7 @@ public class ChallengeEventListener {
 
     @RabbitListener(queues = CHALLENGE_EVENT_DLX_QUEUE)
     public void onDeadLetter(@Payload Message message) {
+        // 死信处理：落库失败消息，支持后续排查与手动回放。
         String payload = message == null ? null : new String(message.getBody());
         String reason = "message moved to DLQ after retry exhausted";
         failedMessageService.recordDeadLetter(message, reason);
@@ -79,6 +84,7 @@ public class ChallengeEventListener {
     }
 
     private boolean shouldDeliver(ChallengeEvent event) {
+        // challengeId + eventType + userId 组合键，作为消息幂等标识。
         String key = NotificationKeys.statusKey(
                 Objects.requireNonNullElse(event.getChallengeId(), 0L),
                 event.getEventType().name(),
@@ -91,6 +97,7 @@ public class ChallengeEventListener {
         }
         LocalDateTime trigger = event.getTriggerTime();
         if (trigger != null && trigger.isAfter(LocalDateTime.now().plusHours(1))) {
+            // 触发时间较远的消息先放到调度器，避免立即消费。
             scheduler.schedule(event);
             log.info("Scheduled future challenge event: {}", event);
             return false;

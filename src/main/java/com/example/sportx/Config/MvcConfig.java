@@ -19,7 +19,11 @@ public class MvcConfig implements WebMvcConfigurer {
                 "/user/code",
                 "/user/login",
                 "/user/regularLogin",
-                "/user/register"
+                "/user/register",
+                "/swagger-ui.html",
+                "/swagger-ui/**",
+                "/v3/api-docs/**",
+                "/webjars/**"
         ).order(1);
         registry.addInterceptor(new RefreshTokenInterceptor(stringRedisTemplate)).addPathPatterns("/**").order(0);
     }

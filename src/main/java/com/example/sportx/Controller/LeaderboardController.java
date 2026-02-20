@@ -8,9 +8,14 @@ import com.example.sportx.Entity.User;
 import com.example.sportx.Service.SpotsService;
 import com.example.sportx.Service.UserService;
 import com.example.sportx.Utils.RedisConstants;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,6 +29,8 @@ import java.util.Set;
 @RestController
 @RequestMapping("/leaderboard")
 @RequiredArgsConstructor
+@Validated
+@Tag(name = "Leaderboard", description = "Ranking APIs based on Redis ZSet")
 public class LeaderboardController {
 
     private final StringRedisTemplate stringRedisTemplate;
@@ -31,9 +38,13 @@ public class LeaderboardController {
     private final UserService userService;
 
     @GetMapping("/spots/heat")
-    public Result<List<SpotHeatRankingDto>> topSpotHeat(@RequestParam(value = "limit", defaultValue = "10") int limit) {
+    @Operation(summary = "Spot heat ranking", description = "Get top spots ranked by heat score")
+    public Result<List<SpotHeatRankingDto>> topSpotHeat(
+            @RequestParam(value = "limit", defaultValue = "10") @Min(value = 1, message = "limit最小为1") @Max(value = 50, message = "limit最大为50") int limit) {
+        // limit 二次保护，避免极端参数影响查询性能。
         int sanitizedLimit = Math.min(Math.max(limit, 1), 50);
 
+        // 从 ZSet 读取热度倒序榜单。
         Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
                 .reverseRangeWithScores(RedisConstants.LEADERBOARD_SPOT_HEAT_KEY, 0, sanitizedLimit - 1);
         if (tuples == null || tuples.isEmpty()) {
@@ -51,6 +62,7 @@ public class LeaderboardController {
                 continue;
             }
 
+            // 榜单存的是 spotId，需要回库补全场馆名称/区域等展示信息。
             Spots spot = spotsService.getById(spotId);
 
             SpotHeatRankingDto dto = new SpotHeatRankingDto();
@@ -69,6 +81,7 @@ public class LeaderboardController {
     }
 
     private Long parseSpotId(String raw) {
+        // Redis member -> Long spotId 的安全转换，格式异常时跳过该条。
         try {
             return Long.valueOf(raw);
         } catch (NumberFormatException ignored) {
@@ -77,7 +90,10 @@ public class LeaderboardController {
     }
 
     @GetMapping("/users/score")
-    public Result<List<UserScoreRankingDto>> topUserScore(@RequestParam(value = "limit", defaultValue = "10") int limit) {
+    @Operation(summary = "User score ranking", description = "Get top users ranked by challenge score")
+    public Result<List<UserScoreRankingDto>> topUserScore(
+            @RequestParam(value = "limit", defaultValue = "10") @Min(value = 1, message = "limit最小为1") @Max(value = 50, message = "limit最大为50") int limit) {
+        // 用户积分榜同样基于 ZSet 倒序读取。
         int sanitizedLimit = Math.min(Math.max(limit, 1), 50);
 
         Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
@@ -93,6 +109,7 @@ public class LeaderboardController {
                 continue;
             }
             String userId = tuple.getValue();
+            // 榜单存 userId，回库补充用户昵称/城市等展示字段。
             User user = userService.getById(userId);
 
             UserScoreRankingDto dto = new UserScoreRankingDto();
@@ -105,6 +122,7 @@ public class LeaderboardController {
             }
             rankings.add(dto);
         }
+        // 返回的是“排行榜展示 DTO”，不是用户实体，避免过多字段泄露。
         return Result.success(rankings);
     }
 }

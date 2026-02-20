@@ -25,7 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Helper for common RabbitMQ tasks like declaring queues/exchanges and sending JSON payloads.
+ * RabbitMQ 通用封装：负责声明基础设施、序列化消息并发送。
  */
 @Slf4j
 @Component
@@ -37,7 +37,7 @@ public class RabbitMqHelper {
     private final ObjectMapper objectMapper;
 
     /**
-     * Ensure a durable queue exists (idempotent).
+     * 确保队列存在（幂等声明，多次调用安全）。
      */
     public void ensureQueue(String queueName) {
         Queue queue = QueueBuilder.durable(queueName).build();
@@ -45,7 +45,7 @@ public class RabbitMqHelper {
     }
 
     /**
-     * Ensure a durable direct exchange exists (idempotent).
+     * 确保 direct 交换机存在（幂等声明）。
      */
     public void ensureDirectExchange(String exchangeName) {
         DirectExchange exchange = ExchangeBuilder.directExchange(exchangeName).durable(true).build();
@@ -53,7 +53,7 @@ public class RabbitMqHelper {
     }
 
     /**
-     * Ensure queue, exchange and binding exist before publishing.
+     * 发送前确保队列、交换机、绑定关系都已存在。
      */
     public void ensureBinding(String queueName, String exchangeName, String routingKey) {
         ensureQueue(queueName);
@@ -63,14 +63,14 @@ public class RabbitMqHelper {
     }
 
     /**
-     * Publish a payload as JSON to a direct exchange.
+     * 发送 JSON 消息到交换机 + routingKey。
      */
     public void sendJson(String exchange, String routingKey, Object payload) {
         sendJson(exchange, routingKey, payload, Collections.emptyMap());
     }
 
     /**
-     * Publish a payload as JSON with custom headers.
+     * 发送 JSON 消息并附加自定义 headers。
      */
     public void sendJson(String exchange, String routingKey, Object payload, Map<String, Object> headers) {
         Objects.requireNonNull(routingKey, "routingKey must not be null");
@@ -82,7 +82,7 @@ public class RabbitMqHelper {
     }
 
     /**
-     * Convenience for sending directly to a queue via the default exchange.
+     * 通过默认交换机直接投递到队列（routingKey=queueName）。
      */
     public void sendJsonToQueue(String queueName, Object payload) {
         ensureQueue(queueName);
@@ -90,7 +90,7 @@ public class RabbitMqHelper {
     }
 
     /**
-     * Publish a challenge event, ensuring the infrastructure exists.
+     * 发送挑战事件：先确保基础设施存在，再进行投递。
      */
     public void publishChallengeEvent(ChallengeEvent event) {
         if (event == null) {
@@ -114,6 +114,7 @@ public class RabbitMqHelper {
         if (body == null) {
             return null;
         }
+        // 持久化消息，减少 Broker 重启导致的消息丢失风险。
         MessageProperties properties = new MessageProperties();
         properties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
         properties.setContentEncoding(StandardCharsets.UTF_8.name());
