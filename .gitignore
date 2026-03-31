@@ -1,5 +1,28 @@
 HELP.md
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Environment and local overrides
+.env
+.env.*
+src/main/resources/application-local.properties
+
+# OS / editor temp files
+*.swp
+*.swo
+*~
+
+# Maven / build output
 target/
+out/
+release/
+debug/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
