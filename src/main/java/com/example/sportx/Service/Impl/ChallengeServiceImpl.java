@@ -8,7 +8,7 @@ import com.example.sportx.Entity.ChallengeEvent;
 import com.example.sportx.Entity.dto.ChallengeListQueryDto;
 import com.example.sportx.Mapper.ChallengeMapper;
 import com.example.sportx.Service.ChallengeService;
-import com.example.sportx.Utils.CacheClient;
+import com.example.sportx.Utils.RedisCacheHelper;
 import com.example.sportx.Utils.RabbitMqHelper;
 import com.example.sportx.Entity.vo.PageResult;
 import com.example.sportx.Entity.vo.Result;
@@ -18,17 +18,19 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 import static com.example.sportx.Utils.RedisConstants.CACHE_CHALLENGE_KEY;
 import static com.example.sportx.Utils.RedisConstants.CACHE_CHALLENGE_TTL;
+import static com.example.sportx.Utils.RedisConstants.LOCK_CHALLENGE_REBUILD_KEY;
 
 @Service
 @RequiredArgsConstructor
 public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge> implements ChallengeService {
 
     private final RabbitMqHelper rabbitMqHelper;
-    private final CacheClient cacheClient;
+    private final RedisCacheHelper redisCacheHelper;
 
     @Transactional
     @Override
@@ -90,14 +92,17 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
         if (challengeId == null) {
             return Result.error("挑战ID不能为空");
         }
-        // 挑战详情走缓存穿透保护，缓存未命中才回库。
-        Challenge challenge = cacheClient.queryWithPassThrough(
+        // 逻辑过期方案防缓存击穿：过期后返回旧值 + 后台异步重建，避免请求抖动。
+        // 加随机 jitter（0~5 min）防雪崩：同批次写入的 key 不会同时过期。
+        long ttlWithJitter = CACHE_CHALLENGE_TTL + ThreadLocalRandom.current().nextLong(0, 5);
+        Challenge challenge = redisCacheHelper.queryWithLogicalTtl(
                 CACHE_CHALLENGE_KEY,
                 challengeId,
                 Challenge.class,
                 this::getById,
-                CACHE_CHALLENGE_TTL,
-                TimeUnit.MINUTES
+                ttlWithJitter,
+                TimeUnit.MINUTES,
+                LOCK_CHALLENGE_REBUILD_KEY
         );
         if (challenge == null) {
             return Result.error("挑战不存在");

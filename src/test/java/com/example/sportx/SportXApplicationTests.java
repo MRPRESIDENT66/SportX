@@ -1,6 +1,6 @@
 package com.example.sportx;
 
-import com.example.sportx.Utils.RedisIDWorker;
+import com.example.sportx.Utils.RedisIdGenerator;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
@@ -15,7 +15,7 @@ class SportXApplicationTests {
 
 
 	@Resource
-	private RedisIDWorker redisWorker;
+	private RedisIdGenerator redisIdGenerator;
 
 	private ExecutorService es = Executors.newFixedThreadPool(500);
 
@@ -30,7 +30,7 @@ class SportXApplicationTests {
 //	void testIdWorker(){
 //		Runnable task= ()->{
 //			for(int i=0; i<100; i++){
-//				long id = redisWorker.nextID("order");
+//				long id = redisIdGenerator.nextId("participation");
 //				System.out.println("id: " + id);
 //			}
 //		};

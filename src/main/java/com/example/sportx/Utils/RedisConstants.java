@@ -10,12 +10,13 @@ public class RedisConstants {
     public static final Long LOGIN_FAIL_WINDOW_TTL = 10L;
     public static final Long LOGIN_BLOCK_TTL = 30L;
     public static final Long LOGIN_FAIL_MAX = 5L;
-    public static final String CACHE_SHOP_KEY = "cache:shop:";
+    public static final String CACHE_SPOT_KEY = "cache:spot:";
     public static final String CACHE_CHALLENGE_KEY = "cache:challenge:";
-    public static final String LOCK_SHOP_KEY = "lock:shop:";
+    public static final String LOCK_SPOT_KEY = "lock:spot:";
     public static final String LOCK_CHALLENGE_JOIN_KEY = "lock:challenge:join:";
+    public static final String LOCK_CHALLENGE_REBUILD_KEY = "lock:challenge:rebuild:";
     public static final String CACHE_REBUILD_EXECUTE = "cache:rebuild:execute:";
-    public static final Long CACHE_SHOP_TTL = 30L;    //正常缓存有效期
+    public static final Long CACHE_SPOT_TTL = 30L;    //正常缓存有效期
     public static final Long CACHE_CHALLENGE_TTL = 30L;
     public static final Long CACHE_NULL_TTL = 2L;     //空值缓存有效期
 

@@ -9,7 +9,7 @@ import com.example.sportx.Entity.dto.SpotQueryDTO;
 import com.example.sportx.Entity.Spots;
 import com.example.sportx.Mapper.SpotsMapper;
 import com.example.sportx.Service.SpotsService;
-import com.example.sportx.Utils.CacheClient;
+import com.example.sportx.Utils.RedisCacheHelper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -23,17 +23,15 @@ import static com.example.sportx.Utils.RedisConstants.*;
 public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements SpotsService {
 
     private final StringRedisTemplate stringRedisTemplate;
-    private final CacheClient cacheClient;
+    private final RedisCacheHelper redisCacheHelper;
     private final SpotsMapper spotsMapper;
 
     @Override
     public Result<Spots> queryById(long id) {
 
-        // 解决缓存穿透
-        // Spots spots = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY,id, Spots.class,this::getById,CACHE_SHOP_TTL,TimeUnit.MINUTES);
-        // 逻辑过期解决缓存击穿
-        Spots spots = cacheClient
-                .queryWithLogicalExpire(CACHE_SHOP_KEY,id,Spots.class, this::getById,CACHE_SHOP_TTL,TimeUnit.MINUTES);
+        // 逻辑过期防缓存击穿：过期后返回旧值并后台异步重建；空值占位防穿透。
+        Spots spots = redisCacheHelper
+                .queryWithLogicalTtl(CACHE_SPOT_KEY, id, Spots.class, this::getById, CACHE_SPOT_TTL, TimeUnit.MINUTES, LOCK_SPOT_KEY);
 
         // 判断空值
         if(spots == null){
@@ -51,7 +49,7 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
         //更新数据库
         updateById(spots);
         //删除缓存
-        stringRedisTemplate.delete(CACHE_SHOP_KEY + id);
+        stringRedisTemplate.delete(CACHE_SPOT_KEY + id);
         return Result.success("更新成功！");
     }
 
