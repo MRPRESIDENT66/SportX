@@ -14,6 +14,7 @@ import com.example.sportx.Entity.dto.UserProfileUpdateDto;
 import com.example.sportx.Entity.vo.Result;
 import com.example.sportx.Mapper.UserMapper;
 import com.example.sportx.Service.UserService;
+import com.example.sportx.Utils.RedisIdGenerator;
 import com.example.sportx.Utils.RegexUtils;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private final StringRedisTemplate stringRedisTemplate;
     private final PasswordEncoder passwordEncoder;
+    private final RedisIdGenerator redisIdGenerator;
 
     @Override
     public Result<String> sendCode(String phone, HttpSession session) {
@@ -166,11 +168,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return Result.success();
     }
 
-    private User createWithPhone(String phone,String passwordHash) {
-        // 当前项目用户ID使用随机数字生成，便于快速演示业务流程。
+    private User createWithPhone(String phone, String passwordHash) {
+        // 雪花 ID 转字符串：全局唯一、无前导零、纯数字，兼容 String 主键列
+        // 同时与 ChallengeParticipation.userId(Long) 的 parseLong 完全兼容。
         User user = new User();
         user.setPhone(phone);
-        user.setId(RandomUtil.randomNumbers(10));
+        user.setId(String.valueOf(redisIdGenerator.nextId("user")));
         user.setPassword(passwordHash);
         save(user);
         return user;

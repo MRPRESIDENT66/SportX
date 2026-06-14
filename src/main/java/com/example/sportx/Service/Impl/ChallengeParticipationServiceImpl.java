@@ -184,13 +184,9 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
                 .gt("joinedSlots", 0)
                 .update();
         if (!decSuccess) {
-            // 极端情况：回滚 status，保持数据一致性。
-            lambdaUpdate()
-                    .eq(ChallengeParticipation::getId, participation.getId())
-                    .set(ChallengeParticipation::getStatus, 1)
-                    .set(ChallengeParticipation::getResult, (Object) null)
-                    .update();
-            return Result.error("取消失败，请稍后重试");
+            // joinedSlots 已是 0（极端情况），抛异常让 @Transactional 自动回滚 status 变更，
+            // 比手动补偿 UPDATE 更安全——手动补偿若也失败会留下不一致状态。
+            throw new IllegalStateException("取消失败：名额计数异常，已自动回滚");
         }
 
         // 4) 同事务写 outbox 记录，relay 提交后异步投递取消事件。
