@@ -1,15 +1,27 @@
 package com.example.sportx.Service.Impl;
 
 import com.example.sportx.Entity.LeaderboardEventLog;
+import com.example.sportx.Entity.Spots;
+import com.example.sportx.Entity.User;
+import com.example.sportx.Entity.vo.SpotHeatRankingDto;
+import com.example.sportx.Entity.vo.UserScoreRankingDto;
 import com.example.sportx.Mapper.LeaderboardEventLogMapper;
 import com.example.sportx.Service.LeaderboardService;
+import com.example.sportx.Service.SpotsService;
+import com.example.sportx.Service.UserService;
 import com.example.sportx.Utils.RedisConstants;
 import com.example.sportx.Utils.RedisIdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -19,6 +31,8 @@ public class LeaderboardServiceImpl implements LeaderboardService {
     private final StringRedisTemplate stringRedisTemplate;
     private final LeaderboardEventLogMapper eventLogMapper;
     private final RedisIdGenerator redisIdGenerator;
+    private final SpotsService spotsService;
+    private final UserService userService;
 
     @Override
     public void incrementSpotHeat(Long spotId, String userId, Long challengeId, String eventType, double delta) {
@@ -77,6 +91,64 @@ public class LeaderboardServiceImpl implements LeaderboardService {
                     .add(RedisConstants.LEADERBOARD_SPOT_HEAT_KEY, spotId.toString(), expected);
             log.warn("Reconciled spot heat: spotId={} redis={} db={}", spotId, actual, expected);
         }
+    }
+
+    @Override
+    public List<SpotHeatRankingDto> getSpotHeatRanking(int limit) {
+        Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
+                .reverseRangeWithScores(RedisConstants.LEADERBOARD_SPOT_HEAT_KEY, 0, limit - 1);
+        if (tuples == null || tuples.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<SpotHeatRankingDto> result = new ArrayList<>(tuples.size());
+        int rank = 1;
+        for (ZSetOperations.TypedTuple<String> tuple : tuples) {
+            if (tuple == null || tuple.getValue() == null) continue;
+            Long spotId;
+            try {
+                spotId = Long.valueOf(tuple.getValue());
+            } catch (NumberFormatException ignored) {
+                continue;
+            }
+            Spots spot = spotsService.getById(spotId);
+            SpotHeatRankingDto dto = new SpotHeatRankingDto();
+            dto.setRank(rank++);
+            dto.setSpotId(spotId);
+            dto.setScore(tuple.getScore());
+            if (spot != null) {
+                dto.setSpotName(spot.getName());
+                dto.setRegion(spot.getRegion());
+                dto.setType(spot.getType());
+            }
+            result.add(dto);
+        }
+        return result;
+    }
+
+    @Override
+    public List<UserScoreRankingDto> getUserScoreRanking(int limit) {
+        Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
+                .reverseRangeWithScores(RedisConstants.LEADERBOARD_USER_CHALLENGE_KEY, 0, limit - 1);
+        if (tuples == null || tuples.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<UserScoreRankingDto> result = new ArrayList<>(tuples.size());
+        int rank = 1;
+        for (ZSetOperations.TypedTuple<String> tuple : tuples) {
+            if (tuple == null || tuple.getValue() == null) continue;
+            String userId = tuple.getValue();
+            User user = userService.getById(userId);
+            UserScoreRankingDto dto = new UserScoreRankingDto();
+            dto.setRank(rank++);
+            dto.setUserId(userId);
+            dto.setScore(tuple.getScore());
+            if (user != null) {
+                dto.setNickname(user.getNickname());
+                dto.setCity(user.getCity());
+            }
+            result.add(dto);
+        }
+        return result;
     }
 
     /**
