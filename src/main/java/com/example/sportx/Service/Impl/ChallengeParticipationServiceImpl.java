@@ -6,14 +6,15 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.sportx.Entity.Challenge;
 import com.example.sportx.Entity.ChallengeEvent;
 import com.example.sportx.Entity.ChallengeParticipation;
+import com.example.sportx.Entity.OutboxEvent;
 import com.example.sportx.Entity.User;
 import com.example.sportx.Entity.vo.PageResult;
 import com.example.sportx.Entity.vo.Result;
 import com.example.sportx.Mapper.ChallengeParMapper;
+import com.example.sportx.Mapper.OutboxEventMapper;
 import com.example.sportx.Service.ChallengeParticipationService;
 import com.example.sportx.Service.ChallengeService;
-import com.example.sportx.Utils.RabbitMqHelper;
-import com.example.sportx.Utils.RedisIDWorker;
+import com.example.sportx.Utils.RedisIdGenerator;
 import com.example.sportx.Utils.UserHolder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -28,12 +29,12 @@ import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import static com.example.sportx.Utils.RedisConstants.CACHE_CHALLENGE_KEY;
 import static com.example.sportx.Utils.RedisConstants.LOCK_CHALLENGE_JOIN_KEY;
 
 @Service
 @RequiredArgsConstructor
 public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParMapper, ChallengeParticipation> implements ChallengeParticipationService {
+
     // Lua 原子解锁脚本：仅当锁归属匹配时才删除，避免误删他人锁。
     private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
     // 应用级随机前缀，结合线程ID组成锁 owner，区分不同请求来源。
@@ -50,19 +51,18 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
     }
 
     private final ChallengeService challengeService;
-    private final RedisIDWorker redisIDWorker;
-    private final RabbitMqHelper rabbitMqHelper;
+    private final RedisIdGenerator redisIdGenerator;
+    private final OutboxEventMapper outboxEventMapper;
     private final StringRedisTemplate stringRedisTemplate;
 
     @Override
     @Transactional
     public Result<Long> joinChallenge(Long challengeId) {
-        // 1) 基础业务校验：活动存在、时间窗口、名额。
+        // 1) 基础业务校验：活动存在、时间窗口、名额预检。
         Challenge challenge = challengeService.getById(challengeId);
         if (challenge == null) {
             return Result.error("活动不存在！");
         }
-
         LocalDate today = LocalDate.now();
         if (challenge.getStartTime().isAfter(today)) {
             return Result.error("活动报名还未开始！");
@@ -85,46 +85,48 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
             return Result.error("用户ID格式错误！");
         }
 
-        // 3) Redis 分布式锁：锁粒度 = 用户 + 挑战，防并发重复报名。
+        // 3) Redis 锁（粒度=用户+挑战）：仅作接口防抖/防重复提交，拦掉用户连点。
+        //    正确性不依赖它——超卖由原子条件 UPDATE 保证，重复报名由唯一索引保证；
+        //    故该锁在事务提交前释放也安全（没有任何正确性依赖于它）。
         String lockKey = buildJoinLockKey(challengeId, userId);
         String lockOwner = buildLockOwner();
-        boolean locked = tryJoinLock(lockKey, lockOwner);
-        if (!locked) {
+        if (!tryJoinLock(lockKey, lockOwner)) {
             return Result.error("请求过于频繁，请稍后重试");
         }
         try {
-            // 4) 业务幂等：同一用户同一挑战只允许一条报名记录。
+            // 4) 快速幂等预检：已报名直接返回，避免走到 INSERT 才报唯一键异常。
             long count = lambdaQuery()
                     .eq(ChallengeParticipation::getUserId, userId)
                     .eq(ChallengeParticipation::getChallengeId, challengeId)
                     .count();
             if (count > 0) {
-                return Result.error("该用户已经下单！");
+                return Result.error("你已报名该挑战，请勿重复报名！");
             }
 
-            // 5) CAS 扣减名额：避免并发下超卖（基于 joinedSlots 条件更新）。
+            // 5) 原子条件 UPDATE 防超卖：WHERE joinedSlots < totalSlots 在行锁下原子执行，
+            //    无论多少并发同时到达，只要有空位就成功，精确满员才失败，不误杀合法请求。
             boolean success = challengeService.update()
-                    .setSql("joinedSlots = joinedSlots +1")
+                    .setSql("joinedSlots = joinedSlots + 1")
                     .eq("id", challengeId)
-                    .eq("joinedSlots", challenge.getJoinedSlots())
+                    .lt("joinedSlots", challenge.getTotalSlots())
                     .update();
             if (!success) {
-                return Result.error("活动名额不足！");
+                return Result.error("报名失败，名额已满！");
             }
-            // 报名成功后失效挑战详情缓存，避免名额字段脏读。
-            evictChallengeCache(challengeId);
 
-            ChallengeParticipation challengeParticipation = buildParticipation(challengeId, challenge.getSpotId(), userId);
-            long orderId = redisIDWorker.nextID("order");
-            challengeParticipation.setId(orderId);
+            // 6) 写报名记录，唯一索引兜底防止极端并发下的重复落库。
+            ChallengeParticipation participation = buildParticipation(challengeId, challenge.getSpotId(), userId);
+            long participationId = redisIdGenerator.nextId("participation");
+            participation.setId(participationId);
             try {
-                save(challengeParticipation);
-            } catch (DuplicateKeyException duplicateKeyException) {
-                // 数据库唯一索引兜底，防止极端并发绕过上层检查。
+                save(participation);
+            } catch (DuplicateKeyException e) {
                 throw new IllegalArgumentException("你已报名该挑战，请勿重复操作");
             }
 
-            // 6) 报名成功后发布事件，交给 MQ 异步做通知/榜单等后续动作。
+            // 7) 同事务写 outbox 记录：与上方所有 DB 写操作原子提交。
+            //    relay 在事务提交后异步读取并投递到 MQ，彻底隔离"业务写"与"消息投递"。
+            //    即使应用在 COMMIT 后立刻宕机，relay 重启后仍能从 outbox 表恢复投递，不丢事件。
             ChallengeEvent event = ChallengeEvent.builder()
                     .eventType(ChallengeEvent.EventType.SIGN_UP_SUCCESS)
                     .challengeId(challengeId)
@@ -132,10 +134,11 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
                     .spotId(challenge.getSpotId())
                     .triggerTime(LocalDateTime.now())
                     .build();
-            rabbitMqHelper.publishChallengeEvent(event);
-            return Result.success(orderId);
+            outboxEventMapper.insert(OutboxEvent.of(redisIdGenerator.nextId("outbox"), event));
+
+            return Result.success(participationId);
         } finally {
-            // 无论成功失败都执行 Lua 解锁，保证锁可释放。
+            // 防抖锁无论成败都用 Lua 原子解锁；提交前释放安全（正确性不依赖此锁）。
             unlock(lockKey, lockOwner);
         }
     }
@@ -154,37 +157,44 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
             return Result.error("用户ID格式错误！");
         }
 
-        // 1) 找到“当前用户可取消”的报名记录（排除已取消状态）。
+        // 1) 找到该用户对应的报名记录。
         ChallengeParticipation participation = lambdaQuery()
                 .eq(ChallengeParticipation::getUserId, userId)
                 .eq(ChallengeParticipation::getChallengeId, challengeId)
-                .ne(ChallengeParticipation::getStatus, 3)
                 .one();
         if (participation == null) {
+            return Result.error("未找到报名记录");
+        }
+
+        // 2) CAS：仅当 status=1 时才更新为 3，防并发重复取消。
+        boolean cancelled = lambdaUpdate()
+                .eq(ChallengeParticipation::getId, participation.getId())
+                .eq(ChallengeParticipation::getStatus, 1)
+                .set(ChallengeParticipation::getStatus, 3)
+                .set(ChallengeParticipation::getResult, "已取消")
+                .update();
+        if (!cancelled) {
             return Result.error("未找到可取消的报名记录");
         }
 
-        // 2) 回收名额（仅在 joinedSlots > 0 时递减）。
+        // 3) status 抢占成功后原子回收名额（守卫 joinedSlots > 0 防止下穿）。
         boolean decSuccess = challengeService.update()
                 .setSql("joinedSlots = joinedSlots - 1")
                 .eq("id", challengeId)
                 .gt("joinedSlots", 0)
                 .update();
         if (!decSuccess) {
+            // 极端情况：回滚 status，保持数据一致性。
+            lambdaUpdate()
+                    .eq(ChallengeParticipation::getId, participation.getId())
+                    .set(ChallengeParticipation::getStatus, 1)
+                    .set(ChallengeParticipation::getResult, (Object) null)
+                    .update();
             return Result.error("取消失败，请稍后重试");
         }
-        // 取消报名后失效挑战详情缓存，避免名额字段脏读。
-        evictChallengeCache(challengeId);
 
-        participation.setStatus(3);
-        participation.setResult("已取消");
-        boolean updated = updateById(participation);
-        if (!updated) {
-            throw new IllegalStateException("取消报名状态更新失败");
-        }
-
+        // 4) 同事务写 outbox 记录，relay 提交后异步投递取消事件。
         Challenge challenge = challengeService.getById(challengeId);
-        // 3) 发布取消事件，异步通知和榜单修正由 MQ 消费者处理。
         ChallengeEvent event = ChallengeEvent.builder()
                 .eventType(ChallengeEvent.EventType.CANCEL_SUCCESS)
                 .challengeId(challengeId)
@@ -192,7 +202,8 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
                 .spotId(challenge == null ? null : challenge.getSpotId())
                 .triggerTime(LocalDateTime.now())
                 .build();
-        rabbitMqHelper.publishChallengeEvent(event);
+        outboxEventMapper.insert(OutboxEvent.of(redisIdGenerator.nextId("outbox"), event));
+
         return Result.success();
     }
 
@@ -226,6 +237,8 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
         return Result.success(result);
     }
 
+    // ── private helpers ──────────────────────────────────────────────────────
+
     private Long parseUserId(String userId) {
         try {
             return Long.parseLong(userId);
@@ -235,15 +248,14 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
     }
 
     private ChallengeParticipation buildParticipation(Long challengeId, Long spotId, Long userId) {
-        ChallengeParticipation challengeParticipation = new ChallengeParticipation();
-        challengeParticipation.setUserId(userId);
-        challengeParticipation.setChallengeId(challengeId);
-        challengeParticipation.setSpotId(spotId);
-        return challengeParticipation;
+        ChallengeParticipation p = new ChallengeParticipation();
+        p.setUserId(userId);
+        p.setChallengeId(challengeId);
+        p.setSpotId(spotId);
+        return p;
     }
 
     private String buildJoinLockKey(Long challengeId, Long userId) {
-        // 锁 key 设计：lock:challenge:join:{challengeId}:{userId}
         return LOCK_CHALLENGE_JOIN_KEY + challengeId + ":" + userId;
     }
 
@@ -253,18 +265,10 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
     }
 
     private void unlock(String key, String owner) {
-        // KEYS[1]=lockKey, ARGV[1]=owner，脚本内做“比对后删除”原子操作。
         stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(key), owner);
     }
 
     private String buildLockOwner() {
         return LOCK_VALUE_PREFIX + ":" + Thread.currentThread().threadId();
-    }
-
-    private void evictChallengeCache(Long challengeId) {
-        if (challengeId == null) {
-            return;
-        }
-        stringRedisTemplate.delete(CACHE_CHALLENGE_KEY + challengeId);
     }
 }
