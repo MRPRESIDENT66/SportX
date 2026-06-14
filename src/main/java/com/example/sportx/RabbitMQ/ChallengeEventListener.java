@@ -1,8 +1,8 @@
 package com.example.sportx.RabbitMQ;
 
 import com.example.sportx.Entity.ChallengeEvent;
-import com.example.sportx.Service.LeaderboardService;
 import com.example.sportx.Service.FailedMessageService;
+import com.example.sportx.Service.LeaderboardService;
 import com.example.sportx.Service.NotificationService;
 import com.example.sportx.Utils.NotificationKeys;
 import lombok.RequiredArgsConstructor;
@@ -17,13 +17,14 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-import static com.example.sportx.RabbitMQ.RabbitConstants.CHALLENGE_EVENT_QUEUE;
 import static com.example.sportx.RabbitMQ.RabbitConstants.CHALLENGE_EVENT_DLX_QUEUE;
+import static com.example.sportx.RabbitMQ.RabbitConstants.CHALLENGE_EVENT_QUEUE;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ChallengeEventListener {
+
     private static final double SIGNUP_SCORE_DELTA = 10D;
     private static final double CANCEL_SCORE_DELTA = -10D;
 
@@ -35,83 +36,88 @@ public class ChallengeEventListener {
 
     @RabbitListener(queues = CHALLENGE_EVENT_QUEUE)
     public void onChallengeEvent(@Payload ChallengeEvent event) {
-        // 主消费入口：消费挑战事件并驱动通知、榜单等后续逻辑。
         if (event == null || event.getEventType() == null) {
             log.warn("Received malformed challenge event: {}", event);
             return;
         }
-        // 幂等/调度检查：已处理过则跳过；未来事件则重新调度。
-        if (!shouldDeliver(event)) {
+
+        // 未来事件先挂调度器，等到触发时间再投递。
+        if (isFutureEvent(event)) {
+            scheduler.schedule(event);
+            log.info("Scheduled future challenge event: {}", event);
             return;
         }
+
+        // SETNX 原子抢占幂等 key：抢到 = 首次处理，抢不到 = 已处理或正在处理，直接 ack 跳过。
+        // 与旧版 hasKey→处理→set 的"查-改"两步不同，setIfAbsent 是单条原子命令，
+        // 多个重复消息并发到达时只有一个能抢到，从根本上消除并发重复执行的窗口。
+        String idempotencyKey = buildIdempotencyKey(event);
+        boolean claimed = Boolean.TRUE.equals(
+                redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "1", 7, TimeUnit.DAYS)
+        );
+        if (!claimed) {
+            log.debug("Challenge event already claimed, skipping: {}", idempotencyKey);
+            return;
+        }
+
         try {
-            switch (event.getEventType()) {
-                case SIGN_UP_SUCCESS:
-                    notificationService.notifySignupSuccess(event);
-                    leaderboardService.incrementSpotHeat(event.getSpotId(), 1D);
-                    leaderboardService.incrementUserScore(event.getUserId(), SIGNUP_SCORE_DELTA);
-                    break;
-                case CANCEL_SUCCESS:
-                    notificationService.notifyCancelSuccess(event);
-                    leaderboardService.incrementSpotHeat(event.getSpotId(), -1D);
-                    leaderboardService.incrementUserScore(event.getUserId(), CANCEL_SCORE_DELTA);
-                    break;
-                case START_REMINDER:
-                    notificationService.notifyStartReminder(event);
-                    break;
-                case END_REMINDER:
-                    notificationService.notifyEndReminder(event);
-                    break;
-                default:
-                    log.warn("Unsupported challenge event type: {}", event.getEventType());
-            }
-            // 业务成功后写入幂等标记，防止重复消费。
-            markDelivered(event);
-        } catch (Exception exception) {
-            // 抛出异常交由 Rabbit 重试机制处理，重试失败后进入 DLQ。
-            log.error("Challenge event consume failed, will retry or dead-letter. event={}", event, exception);
-            throw exception;
+            dispatch(event);
+        } catch (Exception e) {
+            // 业务异常：释放幂等 key，让 RabbitMQ 重试机制重新投递。
+            // 若不释放，重试时会被幂等 key 拦截，永远不会执行，最终静默丢消息。
+            redisTemplate.delete(idempotencyKey);
+            log.error("Challenge event consume failed, releasing idempotency key for retry. event={}", event, e);
+            throw e;
         }
     }
 
     @RabbitListener(queues = CHALLENGE_EVENT_DLX_QUEUE)
     public void onDeadLetter(@Payload Message message) {
-        // 死信处理：落库失败消息，支持后续排查与手动回放。
         String payload = message == null ? null : new String(message.getBody());
-        String reason = "message moved to DLQ after retry exhausted";
-        failedMessageService.recordDeadLetter(message, reason);
+        failedMessageService.recordDeadLetter(message, "message moved to DLQ after retry exhausted");
         log.error("Challenge event moved to DLQ and persisted. payload={}", payload);
     }
 
-    private boolean shouldDeliver(ChallengeEvent event) {
-        // challengeId + eventType + userId 组合键，作为消息幂等标识。
-        String key = NotificationKeys.statusKey(
-                Objects.requireNonNullElse(event.getChallengeId(), 0L),
-                event.getEventType().name(),
-                Objects.requireNonNullElse(event.getUserId(), "_ALL_")
-        );
-        Boolean exists = redisTemplate.hasKey(key);
-        if (Boolean.TRUE.equals(exists)) {
-            log.debug("Challenge event already processed: {}", key);
-            return false;
+    private void dispatch(ChallengeEvent event) {
+        String eventType = event.getEventType().name();
+        switch (event.getEventType()) {
+            case SIGN_UP_SUCCESS:
+                notificationService.notifySignupSuccess(event);
+                // incrementSpotHeat / incrementUserScore 内部先写 DB 流水（唯一约束）再 ZINCRBY，
+                // 保证即使此处被重复调用，ZSet 也不会重复累加。
+                leaderboardService.incrementSpotHeat(
+                        event.getSpotId(), event.getUserId(), event.getChallengeId(), eventType, 1D);
+                leaderboardService.incrementUserScore(
+                        event.getUserId(), event.getChallengeId(), eventType, SIGNUP_SCORE_DELTA);
+                break;
+            case CANCEL_SUCCESS:
+                notificationService.notifyCancelSuccess(event);
+                leaderboardService.incrementSpotHeat(
+                        event.getSpotId(), event.getUserId(), event.getChallengeId(), eventType, -1D);
+                leaderboardService.incrementUserScore(
+                        event.getUserId(), event.getChallengeId(), eventType, CANCEL_SCORE_DELTA);
+                break;
+            case START_REMINDER:
+                notificationService.notifyStartReminder(event);
+                break;
+            case END_REMINDER:
+                notificationService.notifyEndReminder(event);
+                break;
+            default:
+                log.warn("Unsupported challenge event type: {}", event.getEventType());
         }
-        LocalDateTime trigger = event.getTriggerTime();
-        if (trigger != null && trigger.isAfter(LocalDateTime.now().plusHours(1))) {
-            // 触发时间较远的消息先放到调度器，避免立即消费。
-            scheduler.schedule(event);
-            log.info("Scheduled future challenge event: {}", event);
-            return false;
-        }
-        return true;
     }
 
-    private void markDelivered(ChallengeEvent event) {
-        String key = NotificationKeys.statusKey(
+    private boolean isFutureEvent(ChallengeEvent event) {
+        LocalDateTime trigger = event.getTriggerTime();
+        return trigger != null && trigger.isAfter(LocalDateTime.now().plusHours(1));
+    }
+
+    private String buildIdempotencyKey(ChallengeEvent event) {
+        return NotificationKeys.statusKey(
                 Objects.requireNonNullElse(event.getChallengeId(), 0L),
                 event.getEventType().name(),
                 Objects.requireNonNullElse(event.getUserId(), "_ALL_")
         );
-        long ttl = TimeUnit.DAYS.toSeconds(7);
-        redisTemplate.opsForValue().set(key, LocalDateTime.now().toString(), ttl, TimeUnit.SECONDS);
     }
 }
