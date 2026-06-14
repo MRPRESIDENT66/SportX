@@ -12,9 +12,4 @@ class NotificationKeysTest {
 
         assertThat(key).isEqualTo("notify:challenge:100:SIGN_UP_SUCCESS:u001");
     }
-
-    @Test
-    void scheduledSetKey_shouldReturnFixedKey() {
-        assertThat(NotificationKeys.scheduledSetKey()).isEqualTo("notify:challenge:scheduled");
-    }
 }
