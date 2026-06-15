@@ -43,6 +43,22 @@ services:
       timeout: 5s
       retries: 5
 
+  elasticsearch:
+    build: ./docker/elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"          # 开发环境关闭安全，简化连接
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"        # 限制堆内存，避免本地 OOM
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"\\(green\\|yellow\\)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   app:
     build: .
     ports:
@@ -55,8 +71,7 @@ services:
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-guest}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
-      AI_RAG_EMBEDDING_API_KEY: ${AI_RAG_EMBEDDING_API_KEY:-}
-      AI_RAG_CHAT_API_KEY: ${AI_RAG_CHAT_API_KEY:-}
+      SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
     depends_on:
       mysql:
         condition: service_healthy
@@ -64,8 +79,11 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
 
 volumes:
   mysql-data:
   redis-data:
   rabbitmq-data:
+  es-data:
