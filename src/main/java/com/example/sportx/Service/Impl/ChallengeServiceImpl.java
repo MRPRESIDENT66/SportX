@@ -40,6 +40,40 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
         scheduleReminders(challenge);
     }
 
+    @Transactional
+    @Override
+    public Result<Void> updateChallenge(Challenge challenge) {
+        if (challenge == null || challenge.getId() == null) {
+            return Result.error("挑战ID不能为空");
+        }
+        Challenge existing = getById(challenge.getId());
+        if (existing == null) {
+            return Result.error("挑战不存在");
+        }
+        // 名额计数由报名/取消的原子 UPDATE 维护，管理端更新一律忽略该字段，
+        // 防止误写覆盖并发扣减的结果（updateById 默认跳过 null 字段）。
+        challenge.setJoinedSlots(null);
+        updateById(challenge);
+        // 先更新 DB 再删缓存（Cache-Aside）：下次读触发逻辑过期缓存的冷启动重建，避免脏读。
+        redisCacheHelper.evict(CACHE_CHALLENGE_KEY + challenge.getId());
+        return Result.success();
+    }
+
+    @Transactional
+    @Override
+    public Result<Void> deleteChallenge(Long challengeId) {
+        if (challengeId == null) {
+            return Result.error("挑战ID不能为空");
+        }
+        Challenge existing = getById(challengeId);
+        if (existing == null) {
+            return Result.error("挑战不存在");
+        }
+        removeById(challengeId);
+        redisCacheHelper.evict(CACHE_CHALLENGE_KEY + challengeId);
+        return Result.success();
+    }
+
     @Override
     public Result<PageResult<Challenge>> listChallenges(ChallengeListQueryDto queryDto) {
         // 统一处理分页参数，防止调用方传入异常页码或过大 size。

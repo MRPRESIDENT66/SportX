@@ -72,4 +72,18 @@ public class ChallengeController {
         challengeService.addChallenge(challenge);
         return Result.success();
     }
+
+    @PutMapping("/update")
+    @Operation(summary = "Update challenge", description = "Update a challenge and evict its cache")
+    public Result<Void> updateChallenge(@RequestBody Challenge challenge) {
+        // 更新挑战：更新 DB 后删除详情缓存，下次读重建。名额字段由报名流程维护，忽略入参。
+        return challengeService.updateChallenge(challenge);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete challenge", description = "Delete a challenge and evict its cache")
+    public Result<Void> deleteChallenge(@PathVariable("id") @Positive(message = "挑战ID必须大于0") Long challengeId) {
+        // 删除挑战并清理缓存。
+        return challengeService.deleteChallenge(challengeId);
+    }
 }
