@@ -30,4 +30,12 @@ public class SpotSearchController {
         // ES 检索：关键词全文匹配 + 多维过滤 + 类型/地区聚合，与 MySQL 版 /spots/search 并存对比。
         return Result.success(spotSearchService.search(dto));
     }
+
+    @PostMapping("/reindex")
+    @Operation(summary = "Rebuild spot index",
+            description = "Drop and rebuild the spots index from MySQL (admin/init operation)")
+    public Result<Integer> reindex() {
+        // 全量重建：删旧索引 → 按 IK 映射重建 → 从 MySQL 灌入，返回灌入条数。
+        return Result.success(spotSearchService.reindexAll());
+    }
 }

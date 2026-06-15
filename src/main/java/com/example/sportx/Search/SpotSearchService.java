@@ -2,15 +2,19 @@ package com.example.sportx.Search;
 
 import co.elastic.clients.elasticsearch._types.aggregations.Aggregation;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
+import com.example.sportx.Entity.Spots;
 import com.example.sportx.Entity.dto.SpotQueryDTO;
 import com.example.sportx.Entity.vo.SpotSearchResult;
+import com.example.sportx.Service.SpotsService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.client.elc.ElasticsearchAggregation;
 import org.springframework.data.elasticsearch.client.elc.ElasticsearchAggregations;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.AggregationsContainer;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.IndexOperations;
 import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.stereotype.Service;
@@ -30,6 +34,7 @@ import java.util.Map;
  *   <li>同一次请求顺带返回 type/region 两个 terms 聚合，供前端渲染筛选侧边栏。</li>
  * </ul>
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SpotSearchService {
@@ -40,6 +45,40 @@ public class SpotSearchService {
     private static final String REGION_FACET = "region_facet";
 
     private final ElasticsearchOperations operations;
+    private final SpotsService spotsService;
+    private final SpotSearchRepository spotSearchRepository;
+
+    /**
+     * 确保 spots 索引按 @Field 注解的 IK 映射存在（不存在才建）。
+     * 应用启动时调用，避免增量同步直接 save 触发 ES 动态映射（那样 name 字段不会用 IK 分词）。
+     */
+    public void ensureIndex() {
+        IndexOperations indexOps = operations.indexOps(SpotDocument.class);
+        if (!indexOps.exists()) {
+            indexOps.createWithMapping();
+            log.info("Created ES index 'spots' with IK mapping.");
+        }
+    }
+
+    /**
+     * 全量重建索引：删除旧索引 → 按映射重建 → 从 MySQL 批量灌入。
+     * 用于初始化或映射变更后的重刷，是管理操作。
+     */
+    public int reindexAll() {
+        IndexOperations indexOps = operations.indexOps(SpotDocument.class);
+        if (indexOps.exists()) {
+            indexOps.delete();
+        }
+        indexOps.createWithMapping();
+
+        List<Spots> all = spotsService.list();
+        if (all.isEmpty()) {
+            return 0;
+        }
+        spotSearchRepository.saveAll(all.stream().map(SpotDocument::from).toList());
+        log.info("Reindexed {} spots into ES.", all.size());
+        return all.size();
+    }
 
     public SpotSearchResult search(SpotQueryDTO dto) {
         int page = dto.getPage() == null || dto.getPage() < 1 ? 1 : dto.getPage();
