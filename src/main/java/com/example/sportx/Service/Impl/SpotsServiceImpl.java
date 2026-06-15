@@ -3,16 +3,20 @@ package com.example.sportx.Service.Impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.example.sportx.Entity.OutboxEvent;
 import com.example.sportx.Entity.vo.PageResult;
 import com.example.sportx.Entity.vo.Result;
 import com.example.sportx.Entity.dto.SpotQueryDTO;
 import com.example.sportx.Entity.Spots;
+import com.example.sportx.Mapper.OutboxEventMapper;
 import com.example.sportx.Mapper.SpotsMapper;
 import com.example.sportx.Service.SpotsService;
 import com.example.sportx.Utils.RedisCacheHelper;
+import com.example.sportx.Utils.RedisIdGenerator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.concurrent.TimeUnit;
 
@@ -25,6 +29,8 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
     private final StringRedisTemplate stringRedisTemplate;
     private final RedisCacheHelper redisCacheHelper;
     private final SpotsMapper spotsMapper;
+    private final OutboxEventMapper outboxEventMapper;
+    private final RedisIdGenerator redisIdGenerator;
 
     @Override
     public Result<Spots> queryById(long id) {
@@ -41,6 +47,7 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
         return Result.success(spots);
     }
 
+    @Transactional
     public Result<String> update(Spots spots) {
         Long id = spots.getId();
         if(id==null){
@@ -50,6 +57,10 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
         updateById(spots);
         //删除缓存
         stringRedisTemplate.delete(CACHE_SPOT_KEY + id);
+        // 同事务写 outbox：ES 索引由 relay 异步同步，业务写与索引同步解耦且可靠，
+        // 即使应用在提交后宕机，relay 重启仍能从 outbox 恢复投递，不丢同步。
+        outboxEventMapper.insert(
+                OutboxEvent.ofSpotSync(redisIdGenerator.nextId("outbox"), OutboxEvent.EVENT_SPOT_UPSERT, id));
         return Result.success("更新成功！");
     }
 

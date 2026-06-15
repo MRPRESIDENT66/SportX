@@ -15,6 +15,10 @@ public class OutboxEvent {
     public static final String STATUS_DELIVERED = "DELIVERED";
     public static final String STATUS_FAILED    = "FAILED";
 
+    // 搜索同步事件类型：relay 按 eventType 区分这类记录，路由到 search-sync 队列而非业务队列。
+    public static final String EVENT_SPOT_UPSERT = "SPOT_UPSERT";
+    public static final String EVENT_SPOT_DELETE = "SPOT_DELETE";
+
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .findAndRegisterModules();   // 支持 LocalDateTime 序列化
 
@@ -38,6 +42,30 @@ public class OutboxEvent {
         record.setStatus(STATUS_PENDING);
         record.setRetryCount(0);
         return record;
+    }
+
+    /**
+     * 构建一条场馆 ES 同步的 outbox 记录。payload 只存 spotId，
+     * 消费端用它回 DB 读最新数据，保证幂等与最终一致。
+     */
+    public static OutboxEvent ofSpotSync(long id, String eventType, Long spotId) {
+        OutboxEvent record = new OutboxEvent();
+        record.setId(id);
+        record.setEventType(eventType);
+        record.setPayload(String.valueOf(spotId));
+        record.setStatus(STATUS_PENDING);
+        record.setRetryCount(0);
+        return record;
+    }
+
+    /** 是否为搜索同步类事件（relay 据此决定路由到 search-sync 队列）。 */
+    public boolean isSpotSyncEvent() {
+        return EVENT_SPOT_UPSERT.equals(eventType) || EVENT_SPOT_DELETE.equals(eventType);
+    }
+
+    /** 从 payload 取出 spotId（仅对 spot 同步事件有效）。 */
+    public Long spotIdFromPayload() {
+        return Long.valueOf(payload);
     }
 
     /** 将 payload JSON 反序列化回 ChallengeEvent。 */
