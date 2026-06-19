@@ -15,9 +15,17 @@ public class OutboxEvent {
     public static final String STATUS_DELIVERED = "DELIVERED";
     public static final String STATUS_FAILED    = "FAILED";
 
-    // 搜索同步事件类型：relay 按 eventType 区分这类记录，路由到 search-sync 队列而非业务队列。
-    public static final String EVENT_SPOT_UPSERT = "SPOT_UPSERT";
-    public static final String EVENT_SPOT_DELETE = "SPOT_DELETE";
+    // 索引同步事件：relay 按 eventType 区分这类记录，路由到统一的 search-sync 队列而非业务队列。
+    // eventType 命名约定 = {聚合}_{操作}，如 SPOT_UPSERT / CHALLENGE_DELETE。
+    public static final String AGG_SPOT = "SPOT";
+    public static final String AGG_CHALLENGE = "CHALLENGE";
+    public static final String OP_UPSERT = "UPSERT";
+    public static final String OP_DELETE = "DELETE";
+
+    public static final String EVENT_SPOT_UPSERT = AGG_SPOT + "_" + OP_UPSERT;
+    public static final String EVENT_SPOT_DELETE = AGG_SPOT + "_" + OP_DELETE;
+    public static final String EVENT_CHALLENGE_UPSERT = AGG_CHALLENGE + "_" + OP_UPSERT;
+    public static final String EVENT_CHALLENGE_DELETE = AGG_CHALLENGE + "_" + OP_DELETE;
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .findAndRegisterModules();   // 支持 LocalDateTime 序列化
@@ -45,26 +53,31 @@ public class OutboxEvent {
     }
 
     /**
-     * 构建一条场馆 ES 同步的 outbox 记录。payload 只存 spotId，
+     * 构建一条 ES 索引同步的 outbox 记录。payload 只存目标实体 id，
      * 消费端用它回 DB 读最新数据，保证幂等与最终一致。
+     *
+     * @param eventType 形如 SPOT_UPSERT / CHALLENGE_DELETE
+     * @param targetId  目标实体 id（spotId 或 challengeId）
      */
-    public static OutboxEvent ofSpotSync(long id, String eventType, Long spotId) {
+    public static OutboxEvent ofIndexSync(long id, String eventType, Long targetId) {
         OutboxEvent record = new OutboxEvent();
         record.setId(id);
         record.setEventType(eventType);
-        record.setPayload(String.valueOf(spotId));
+        record.setPayload(String.valueOf(targetId));
         record.setStatus(STATUS_PENDING);
         record.setRetryCount(0);
         return record;
     }
 
-    /** 是否为搜索同步类事件（relay 据此决定路由到 search-sync 队列）。 */
-    public boolean isSpotSyncEvent() {
-        return EVENT_SPOT_UPSERT.equals(eventType) || EVENT_SPOT_DELETE.equals(eventType);
+    /** 是否为索引同步类事件（relay 据此决定路由到 search-sync 队列）。 */
+    public boolean isIndexSyncEvent() {
+        return eventType != null
+                && (eventType.startsWith(AGG_SPOT + "_") || eventType.startsWith(AGG_CHALLENGE + "_"))
+                && (eventType.endsWith("_" + OP_UPSERT) || eventType.endsWith("_" + OP_DELETE));
     }
 
-    /** 从 payload 取出 spotId（仅对 spot 同步事件有效）。 */
-    public Long spotIdFromPayload() {
+    /** 从 payload 取出目标实体 id（仅对索引同步事件有效）。 */
+    public Long targetIdFromPayload() {
         return Long.valueOf(payload);
     }
 

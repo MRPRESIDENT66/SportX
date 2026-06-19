@@ -60,7 +60,7 @@ public class SpotsServiceImpl extends ServiceImpl<SpotsMapper, Spots> implements
         // 同事务写 outbox：ES 索引由 relay 异步同步，业务写与索引同步解耦且可靠，
         // 即使应用在提交后宕机，relay 重启仍能从 outbox 恢复投递，不丢同步。
         outboxEventMapper.insert(
-                OutboxEvent.ofSpotSync(redisIdGenerator.nextId("outbox"), OutboxEvent.EVENT_SPOT_UPSERT, id));
+                OutboxEvent.ofIndexSync(redisIdGenerator.nextId("outbox"), OutboxEvent.EVENT_SPOT_UPSERT, id));
         return Result.success("更新成功！");
     }
 

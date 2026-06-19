@@ -22,7 +22,7 @@ import org.springframework.data.elasticsearch.annotations.FieldType;
  */
 @Data
 @NoArgsConstructor
-@Document(indexName = "spots")
+@Document(indexName = "spots", createIndex = false)
 public class SpotDocument {
 
     @Id

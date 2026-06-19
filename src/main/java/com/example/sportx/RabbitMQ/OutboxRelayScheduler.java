@@ -3,8 +3,8 @@ package com.example.sportx.RabbitMQ;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.sportx.Entity.ChallengeEvent;
+import com.example.sportx.Entity.IndexSyncEvent;
 import com.example.sportx.Entity.OutboxEvent;
-import com.example.sportx.Entity.SpotSyncEvent;
 import com.example.sportx.Mapper.OutboxEventMapper;
 import com.example.sportx.Utils.RabbitMqHelper;
 import lombok.RequiredArgsConstructor;
@@ -81,9 +81,9 @@ public class OutboxRelayScheduler {
 
     private void process(OutboxEvent record) {
         try {
-            // 按事件类型路由：搜索同步事件走 search-sync 队列，业务事件走 challenge 队列。
-            if (record.isSpotSyncEvent()) {
-                SpotSyncEvent event = new SpotSyncEvent(record.getEventType(), record.spotIdFromPayload());
+            // 按事件类型路由：索引同步事件走 search-sync 队列，业务事件走 challenge 队列。
+            if (record.isIndexSyncEvent()) {
+                IndexSyncEvent event = IndexSyncEvent.from(record.getEventType(), record.targetIdFromPayload());
                 rabbitMqHelper.sendJson(SEARCH_SYNC_EXCHANGE, SEARCH_SYNC_ROUTING_KEY, event);
             } else {
                 ChallengeEvent event = record.toChallengeEvent();
