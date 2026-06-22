@@ -90,18 +90,15 @@ public class RabbitMqHelper {
     }
 
     /**
-     * 发送挑战事件：先确保基础设施存在，再进行投递。
+     * 发送挑战事件。
+     * 队列/交换机/绑定（含死信参数）由 RabbitConfig 在启动时统一声明，此处不再重复声明——
+     * 否则用不带 DLX 参数的 ensureQueue 重声明会与 RabbitConfig 冲突，触发 PRECONDITION_FAILED。
      */
     public void publishChallengeEvent(ChallengeEvent event) {
         if (event == null) {
             log.warn("Attempted to publish null challenge event");
             return;
         }
-        ensureBinding(
-                RabbitConstants.CHALLENGE_EVENT_QUEUE,
-                RabbitConstants.CHALLENGE_EVENT_EXCHANGE,
-                RabbitConstants.CHALLENGE_EVENT_ROUTING_KEY
-        );
         sendJson(
                 RabbitConstants.CHALLENGE_EVENT_EXCHANGE,
                 RabbitConstants.CHALLENGE_EVENT_ROUTING_KEY,

@@ -103,12 +103,13 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
                 return Result.error("你已报名该挑战，请勿重复报名！");
             }
 
-            // 5) 原子条件 UPDATE 防超卖：WHERE joinedSlots < totalSlots 在行锁下原子执行，
+            // 5) 原子条件 UPDATE 防超卖：WHERE joined_slots < total_slots 在行锁下原子执行，
             //    无论多少并发同时到达，只要有空位就成功，精确满员才失败，不误杀合法请求。
+            //    注意：update() 的字符串列名不会自动驼峰转下划线，必须用真实列名 joined_slots。
             boolean success = challengeService.update()
-                    .setSql("joinedSlots = joinedSlots + 1")
+                    .setSql("joined_slots = joined_slots + 1")
                     .eq("id", challengeId)
-                    .lt("joinedSlots", challenge.getTotalSlots())
+                    .lt("joined_slots", challenge.getTotalSlots())
                     .update();
             if (!success) {
                 return Result.error("报名失败，名额已满！");
@@ -177,11 +178,11 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
             return Result.error("未找到可取消的报名记录");
         }
 
-        // 3) status 抢占成功后原子回收名额（守卫 joinedSlots > 0 防止下穿）。
+        // 3) status 抢占成功后原子回收名额（守卫 joined_slots > 0 防止下穿）。
         boolean decSuccess = challengeService.update()
-                .setSql("joinedSlots = joinedSlots - 1")
+                .setSql("joined_slots = joined_slots - 1")
                 .eq("id", challengeId)
-                .gt("joinedSlots", 0)
+                .gt("joined_slots", 0)
                 .update();
         if (!decSuccess) {
             // joinedSlots 已是 0（极端情况），抛异常让 @Transactional 自动回滚 status 变更，

@@ -57,6 +57,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception exception) {
+        // 异常细节只记日志，不返回给前端，避免泄露内部实现。
         log.error("Unhandled exception", exception);
         return Result.error("系统异常，请稍后重试");
     }

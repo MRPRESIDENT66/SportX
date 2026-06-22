@@ -5,11 +5,14 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.sportx.Entity.Challenge;
 import com.example.sportx.Entity.ChallengeEvent;
+import com.example.sportx.Entity.OutboxEvent;
 import com.example.sportx.Entity.dto.ChallengeListQueryDto;
 import com.example.sportx.Mapper.ChallengeMapper;
+import com.example.sportx.Mapper.OutboxEventMapper;
 import com.example.sportx.Service.ChallengeService;
 import com.example.sportx.Utils.RedisCacheHelper;
 import com.example.sportx.Utils.RabbitMqHelper;
+import com.example.sportx.Utils.RedisIdGenerator;
 import com.example.sportx.Entity.vo.PageResult;
 import com.example.sportx.Entity.vo.Result;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +34,8 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
 
     private final RabbitMqHelper rabbitMqHelper;
     private final RedisCacheHelper redisCacheHelper;
+    private final OutboxEventMapper outboxEventMapper;
+    private final RedisIdGenerator redisIdGenerator;
 
     @Transactional
     @Override
@@ -38,6 +43,9 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
         // 创建挑战后立即注册“开赛/结束”提醒事件，后续由调度器按触发时间投递。
         save(challenge);
         scheduleReminders(challenge);
+        // 同事务写 outbox，relay 异步把新挑战同步到 ES 索引。
+        outboxEventMapper.insert(OutboxEvent.ofIndexSync(
+                redisIdGenerator.nextId("outbox"), OutboxEvent.EVENT_CHALLENGE_UPSERT, challenge.getId()));
     }
 
     @Transactional
@@ -56,6 +64,9 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
         updateById(challenge);
         // 先更新 DB 再删缓存（Cache-Aside）：下次读触发逻辑过期缓存的冷启动重建，避免脏读。
         redisCacheHelper.evict(CACHE_CHALLENGE_KEY + challenge.getId());
+        // 同事务写 outbox，relay 异步同步到 ES 索引。
+        outboxEventMapper.insert(OutboxEvent.ofIndexSync(
+                redisIdGenerator.nextId("outbox"), OutboxEvent.EVENT_CHALLENGE_UPSERT, challenge.getId()));
         return Result.success();
     }
 
@@ -71,6 +82,9 @@ public class ChallengeServiceImpl extends ServiceImpl<ChallengeMapper, Challenge
         }
         removeById(challengeId);
         redisCacheHelper.evict(CACHE_CHALLENGE_KEY + challengeId);
+        // 同事务写 outbox，relay 异步从 ES 索引删除。
+        outboxEventMapper.insert(OutboxEvent.ofIndexSync(
+                redisIdGenerator.nextId("outbox"), OutboxEvent.EVENT_CHALLENGE_DELETE, challengeId));
         return Result.success();
     }
 

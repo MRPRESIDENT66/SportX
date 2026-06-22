@@ -3,6 +3,7 @@ package com.example.sportx.RabbitMQ;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.sportx.Entity.ChallengeEvent;
+import com.example.sportx.Entity.IndexSyncEvent;
 import com.example.sportx.Entity.OutboxEvent;
 import com.example.sportx.Mapper.OutboxEventMapper;
 import com.example.sportx.Utils.RabbitMqHelper;
@@ -16,6 +17,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import static com.example.sportx.RabbitMQ.RabbitConstants.SEARCH_SYNC_EXCHANGE;
+import static com.example.sportx.RabbitMQ.RabbitConstants.SEARCH_SYNC_ROUTING_KEY;
 import static com.example.sportx.Utils.RedisConstants.CACHE_CHALLENGE_KEY;
 
 /**
@@ -78,11 +81,16 @@ public class OutboxRelayScheduler {
 
     private void process(OutboxEvent record) {
         try {
-            ChallengeEvent event = record.toChallengeEvent();
-
-            // 先删缓存，再投递 MQ：确保消费端处理通知/积分时，缓存已是最新。
-            evictChallengeCache(event.getChallengeId());
-            rabbitMqHelper.publishChallengeEvent(event);
+            // 按事件类型路由：索引同步事件走 search-sync 队列，业务事件走 challenge 队列。
+            if (record.isIndexSyncEvent()) {
+                IndexSyncEvent event = IndexSyncEvent.from(record.getEventType(), record.targetIdFromPayload());
+                rabbitMqHelper.sendJson(SEARCH_SYNC_EXCHANGE, SEARCH_SYNC_ROUTING_KEY, event);
+            } else {
+                ChallengeEvent event = record.toChallengeEvent();
+                // 先删缓存，再投递 MQ：确保消费端处理通知/积分时，缓存已是最新。
+                evictChallengeCache(event.getChallengeId());
+                rabbitMqHelper.publishChallengeEvent(event);
+            }
 
             markDelivered(record.getId());
             log.debug("Outbox relay delivered: id={} type={}", record.getId(), record.getEventType());
