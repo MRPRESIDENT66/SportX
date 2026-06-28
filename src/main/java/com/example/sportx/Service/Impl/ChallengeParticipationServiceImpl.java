@@ -17,16 +17,14 @@ import com.example.sportx.Service.ChallengeService;
 import com.example.sportx.Utils.RedisIdGenerator;
 import com.example.sportx.Utils.UserHolder;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Collections;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static com.example.sportx.Utils.RedisConstants.LOCK_CHALLENGE_JOIN_KEY;
@@ -35,25 +33,10 @@ import static com.example.sportx.Utils.RedisConstants.LOCK_CHALLENGE_JOIN_KEY;
 @RequiredArgsConstructor
 public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParMapper, ChallengeParticipation> implements ChallengeParticipationService {
 
-    // Lua 原子解锁脚本：仅当锁归属匹配时才删除，避免误删他人锁。
-    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
-    // 应用级随机前缀，结合线程ID组成锁 owner，区分不同请求来源。
-    private static final String LOCK_VALUE_PREFIX = UUID.randomUUID().toString().replace("-", "");
-
-    static {
-        UNLOCK_SCRIPT = new DefaultRedisScript<>();
-        UNLOCK_SCRIPT.setScriptText(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then " +
-                "return redis.call('del', KEYS[1]) " +
-                "else return 0 end"
-        );
-        UNLOCK_SCRIPT.setResultType(Long.class);
-    }
-
     private final ChallengeService challengeService;
     private final RedisIdGenerator redisIdGenerator;
     private final OutboxEventMapper outboxEventMapper;
-    private final StringRedisTemplate stringRedisTemplate;
+    private final RedissonClient redissonClient;
 
     @Override
     @Transactional
@@ -85,12 +68,21 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
             return Result.error("用户ID格式错误！");
         }
 
-        // 3) Redis 锁（粒度=用户+挑战）：仅作接口防抖/防重复提交，拦掉用户连点。
-        //    正确性不依赖它——超卖由原子条件 UPDATE 保证，重复报名由唯一索引保证；
-        //    故该锁在事务提交前释放也安全（没有任何正确性依赖于它）。
+        // 3) Redisson 分布式锁（粒度=用户+挑战）：仅作接口防抖/防重复提交，拦掉用户连点。
+        //    正确性不依赖它——超卖由原子条件 UPDATE 保证，重复报名由唯一索引保证。
+        //    用 Redisson 替代手写 SETNX+Lua：可重入、解锁原子性与 owner 校验由其内部 Lua 保证，
+        //    无需自己维护脚本/owner，更健壮。waitTime=0 抢不到立即拒绝（防抖语义，不阻塞）；
+        //    leaseTime=10s 兜底释放，防止持锁线程崩溃导致死锁。
         String lockKey = buildJoinLockKey(challengeId, userId);
-        String lockOwner = buildLockOwner();
-        if (!tryJoinLock(lockKey, lockOwner)) {
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean locked;
+        try {
+            locked = lock.tryLock(0, 10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Result.error("请求被中断，请稍后重试");
+        }
+        if (!locked) {
             return Result.error("请求过于频繁，请稍后重试");
         }
         try {
@@ -139,8 +131,10 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
 
             return Result.success(participationId);
         } finally {
-            // 防抖锁无论成败都用 Lua 原子解锁；提交前释放安全（正确性不依赖此锁）。
-            unlock(lockKey, lockOwner);
+            // 仅当锁仍由当前线程持有时才释放，避免租期已过被他人持有时误删（Redisson 内部 owner 校验）。
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
     }
 
@@ -254,18 +248,5 @@ public class ChallengeParticipationServiceImpl extends ServiceImpl<ChallengeParM
 
     private String buildJoinLockKey(Long challengeId, Long userId) {
         return LOCK_CHALLENGE_JOIN_KEY + challengeId + ":" + userId;
-    }
-
-    private boolean tryJoinLock(String key, String owner) {
-        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(key, owner, 10, TimeUnit.SECONDS);
-        return Boolean.TRUE.equals(locked);
-    }
-
-    private void unlock(String key, String owner) {
-        stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(key), owner);
-    }
-
-    private String buildLockOwner() {
-        return LOCK_VALUE_PREFIX + ":" + Thread.currentThread().threadId();
     }
 }
