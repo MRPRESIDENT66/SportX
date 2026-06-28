@@ -1,5 +1,6 @@
 package com.example.sportx.Controller;
 
+import com.example.sportx.Annotation.RateLimit;
 import com.example.sportx.Entity.Challenge;
 import com.example.sportx.Entity.ChallengeParticipation;
 import com.example.sportx.Entity.dto.ChallengeListQueryDto;
@@ -53,8 +54,9 @@ public class ChallengeController {
 
     @PostMapping("/register/{id}")
     @Operation(summary = "Register challenge", description = "Register current user to a challenge")
+    @RateLimit(rate = 5, rateInterval = 1, perUser = true)   // 每用户每秒最多5次报名，超出快速拒绝
     public Result<Long> joinChallenge(@PathVariable("id") @Positive(message = "挑战ID必须大于0") Long challengeId) {
-        // 报名挑战：含分布式锁、防重、名额扣减与事件发布。
+        // 报名挑战：限流(AOP)→防抖锁→防重→名额原子扣减→事件发布。
         return challengeParticipationService.joinChallenge(challengeId);
     }
 
